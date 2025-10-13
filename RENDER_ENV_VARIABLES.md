@@ -36,6 +36,13 @@
 **Valor por defecto:** `False`
 **Valor en producción:** `False`
 
+### 8. CORS_ORIGINS (OPCIONAL)
+**Descripción:** URLs permitidas del frontend (separadas por coma)
+**Valor por defecto:** `*` (permite todas las URLs)
+**Valor de ejemplo:** `https://tu-frontend.pages.dev,https://tu-dominio.com`
+
+Para desarrollo puedes usar `*`, pero para producción es más seguro especificar las URLs exactas de tu frontend.
+
 ## Configuración en Render
 
 ### Paso 1: Crear Web Service
@@ -76,6 +83,11 @@ API_TITLE=Casterly Rock Simulation API
 API_VERSION=1.0.0
 API_DESCRIPTION=Sistema de selección, asignación y rotación de agentes
 DEBUG=False
+
+# CORS - URL del frontend
+# Para desarrollo: CORS_ORIGINS=*
+# Para producción: CORS_ORIGINS=https://tu-frontend.pages.dev,https://otro-dominio.com
+CORS_ORIGINS=https://tu-frontend.pages.dev
 ```
 
 ## Configuración de MongoDB Atlas

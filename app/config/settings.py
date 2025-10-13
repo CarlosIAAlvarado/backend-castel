@@ -20,5 +20,7 @@ class Settings(BaseSettings):
 
     debug: bool = False
 
+    cors_origins: str = "*"
+
 
 settings = Settings()
