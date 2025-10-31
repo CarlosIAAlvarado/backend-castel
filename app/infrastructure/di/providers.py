@@ -166,6 +166,52 @@ DailyROIRepositoryDep = Annotated[DailyROIRepository, Depends(get_daily_roi_repo
 ROI7DRepositoryDep = Annotated[ROI7DRepository, Depends(get_roi_7d_repository)]
 
 
+def get_balance_query_service(
+    balance_repo: BalanceRepositoryDep
+) -> BalanceQueryService:
+    """
+    Provider for BalanceQueryService.
+
+    Returns:
+        BalanceQueryService with injected dependencies
+    """
+    return BalanceQueryService(balance_repo)
+
+
+def get_daily_roi_calculation_service(
+    daily_roi_repo: DailyROIRepositoryDep,
+    db: DatabaseDep
+) -> DailyROICalculationService:
+    """
+    Provider for DailyROICalculationService.
+
+    Args:
+        daily_roi_repo: Repository for DailyROI
+        db: MongoDB Database instance
+
+    Returns:
+        DailyROICalculationService with injected dependencies
+    """
+    return DailyROICalculationService(daily_roi_repo, db)
+
+
+def get_roi_7d_calculation_service(
+    roi_7d_repo: ROI7DRepositoryDep,
+    daily_roi_service: Annotated[DailyROICalculationService, Depends(get_daily_roi_calculation_service)]
+) -> ROI7DCalculationService:
+    """
+    Provider for ROI7DCalculationService.
+
+    Args:
+        roi_7d_repo: Repository for ROI7D
+        daily_roi_service: Service for calculating daily ROIs
+
+    Returns:
+        ROI7DCalculationService with injected dependencies
+    """
+    return ROI7DCalculationService(roi_7d_repo, daily_roi_service)
+
+
 def get_selection_service(
     top16_repo: Top16RepositoryDep,
     balance_repo: BalanceRepositoryDep,
@@ -310,17 +356,6 @@ def get_movement_query_service(
     return MovementQueryService(movement_repo)
 
 
-def get_balance_query_service(
-    balance_repo: BalanceRepositoryDep
-) -> BalanceQueryService:
-    """
-    Provider for BalanceQueryService.
-
-    Returns:
-        BalanceQueryService with injected dependencies
-    """
-    return BalanceQueryService(balance_repo)
-
 
 def get_data_aggregation_service(
     movement_query_service: Annotated[MovementQueryService, Depends(get_movement_query_service)],
@@ -352,38 +387,6 @@ def get_kpi_calculation_service(
     return KPICalculationService(data_aggregation_service)
 
 
-def get_daily_roi_calculation_service(
-    daily_roi_repo: DailyROIRepositoryDep,
-    db: DatabaseDep
-) -> DailyROICalculationService:
-    """
-    Provider for DailyROICalculationService.
-
-    Args:
-        daily_roi_repo: Repository for DailyROI
-        db: MongoDB Database instance
-
-    Returns:
-        DailyROICalculationService with injected dependencies
-    """
-    return DailyROICalculationService(daily_roi_repo, db)
-
-
-def get_roi_7d_calculation_service(
-    roi_7d_repo: ROI7DRepositoryDep,
-    daily_roi_service: Annotated[DailyROICalculationService, Depends(get_daily_roi_calculation_service)]
-) -> ROI7DCalculationService:
-    """
-    Provider for ROI7DCalculationService.
-
-    Args:
-        roi_7d_repo: Repository for ROI7D
-        daily_roi_service: Service for calculating daily ROIs
-
-    Returns:
-        ROI7DCalculationService with injected dependencies
-    """
-    return ROI7DCalculationService(roi_7d_repo, daily_roi_service)
 
 
 KPICalculationServiceDep = Annotated[KPICalculationService, Depends(get_kpi_calculation_service)]
