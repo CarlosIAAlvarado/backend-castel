@@ -2,11 +2,18 @@ from typing import List, Dict, Any, Optional
 from datetime import date, datetime
 import pytz
 from app.domain.entities.rotation_log import RotationLog, RotationReason
-from app.infrastructure.repositories.rotation_log_repository_impl import RotationLogRepositoryImpl
-from app.infrastructure.repositories.assignment_repository_impl import AssignmentRepositoryImpl
-from app.infrastructure.repositories.agent_state_repository_impl import AgentStateRepositoryImpl
-from app.infrastructure.repositories.top16_repository_impl import Top16RepositoryImpl
+from app.domain.repositories.rotation_log_repository import RotationLogRepository
+from app.domain.repositories.assignment_repository import AssignmentRepository
+from app.domain.repositories.agent_state_repository import AgentStateRepository
+from app.domain.repositories.top16_repository import Top16Repository
 from app.application.services.selection_service import SelectionService
+from app.domain.events import (
+    event_bus,
+    AgentExitedEvent,
+    AgentEnteredEvent,
+    AgentRotationCompletedEvent,
+    AccountsReassignedEvent
+)
 
 
 class ReplacementService:
@@ -20,12 +27,29 @@ class ReplacementService:
     - Actualizar estado del nuevo agente
     """
 
-    def __init__(self):
-        self.rotation_log_repo = RotationLogRepositoryImpl()
-        self.assignment_repo = AssignmentRepositoryImpl()
-        self.state_repo = AgentStateRepositoryImpl()
-        self.top16_repo = Top16RepositoryImpl()
-        self.selection_service = SelectionService()
+    def __init__(
+        self,
+        rotation_log_repo: RotationLogRepository,
+        assignment_repo: AssignmentRepository,
+        state_repo: AgentStateRepository,
+        top16_repo: Top16Repository,
+        selection_service: SelectionService
+    ):
+        """
+        Constructor con inyeccion de dependencias.
+
+        Args:
+            rotation_log_repo: Repositorio de logs de rotacion
+            assignment_repo: Repositorio de asignaciones
+            state_repo: Repositorio de estados de agentes
+            top16_repo: Repositorio de Top16
+            selection_service: Servicio de seleccion de agentes
+        """
+        self.rotation_log_repo = rotation_log_repo
+        self.assignment_repo = assignment_repo
+        self.state_repo = state_repo
+        self.top16_repo = top16_repo
+        self.selection_service = selection_service
         self.timezone = pytz.timezone("America/Bogota")
 
     def find_replacement_agent(
@@ -228,6 +252,54 @@ class ReplacementService:
             n_accounts=transfer_result["n_accounts_transferred"],
             total_aum=transfer_result["total_aum_transferred"]
         )
+
+        # Publicar eventos de dominio
+        # 1. Evento: Agente ha salido
+        exit_event = AgentExitedEvent(
+            agent_id=agent_out,
+            exit_date=target_date,
+            reason=reason,
+            roi_total=agent_out_roi_total,
+            fall_days=agent_out_state.fall_days if agent_out_state else 0,
+            n_accounts=transfer_result["n_accounts_transferred"],
+            total_aum=transfer_result["total_aum_transferred"]
+        )
+        event_bus.publish(exit_event)
+
+        # 2. Evento: Nuevo agente ha entrado
+        enter_event = AgentEnteredEvent(
+            agent_id=agent_in,
+            entry_date=target_date,
+            roi_7d=agent_in_roi_7d,
+            n_accounts=transfer_result["n_accounts_transferred"],
+            total_aum=transfer_result["total_aum_transferred"],
+            replaced_agent_id=agent_out
+        )
+        event_bus.publish(enter_event)
+
+        # 3. Evento: Rotacion completada
+        rotation_event = AgentRotationCompletedEvent(
+            rotation_date=target_date,
+            agent_out=agent_out,
+            agent_in=agent_in,
+            reason=reason,
+            n_accounts=transfer_result["n_accounts_transferred"],
+            total_aum=transfer_result["total_aum_transferred"]
+        )
+        event_bus.publish(rotation_event)
+
+        # 4. Evento: Cuentas reasignadas
+        assignments_out = self.assignment_repo.get_active_by_agent(agent_in)
+        account_ids = [assignment.account_id for assignment in assignments_out]
+
+        reassignment_event = AccountsReassignedEvent(
+            reassignment_date=target_date,
+            from_agent_id=agent_out,
+            to_agent_id=agent_in,
+            account_ids=account_ids,
+            total_aum_transferred=transfer_result["total_aum_transferred"]
+        )
+        event_bus.publish(reassignment_event)
 
         return {
             "success": True,

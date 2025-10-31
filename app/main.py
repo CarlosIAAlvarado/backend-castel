@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config.settings import settings
 from app.config.database import database_manager
-from app.presentation.api import exploration_routes
-from app.presentation.routes import query_routes, simulation_routes, reports_routes
+from app.presentation.routes import simulation_routes, reports_routes, simulations_routes, client_accounts_routes
 
 
 @asynccontextmanager
@@ -21,7 +20,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
+if settings.cors_origins == "*":
+    origins = ["*"]
+else:
+    origins = [origin.strip() for origin in settings.cors_origins.split(",")]
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,10 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(exploration_routes.router)
-app.include_router(query_routes.router)
 app.include_router(simulation_routes.router)
 app.include_router(reports_routes.router)
+app.include_router(simulations_routes.router)
+app.include_router(client_accounts_routes.router)
 
 
 @app.get("/")
@@ -66,3 +68,13 @@ def test_database_connection():
             "status": "error",
             "message": str(e)
         }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.reload
+    )

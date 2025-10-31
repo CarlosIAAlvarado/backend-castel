@@ -1,0 +1,588 @@
+2025-10-29 20:52:43,150 - __main__ - INFO - === INICIANDO PRUEBA DE SINCRONIZACION ===
+2025-10-29 20:52:47,621 - __main__ - INFO - \u2705 Conectado a MongoDB: simulacion_casterly_rock
+2025-10-29 20:52:47,821 - __main__ - INFO - \u2705 Servicio instanciado correctamente
+2025-10-29 20:52:49,313 - __main__ - INFO - \U0001f4ca Cuentas en BD: 1000
+2025-10-29 20:52:49,316 - __main__ - INFO - Detectando ventana de dias de la simulacion mas reciente...
+2025-10-29 20:52:49,928 - __main__ - INFO - Coleccion top16_3d: 48 docs, fecha mas reciente: 2025-10-07
+2025-10-29 20:52:52,967 - __main__ - INFO - Simulacion mas reciente detectada: 3D con fecha 2025-10-07
+2025-10-29 20:52:53,205 - __main__ - INFO - Top 16 para 2025-10-07: 16 agentes
+2025-10-29 20:52:53,205 - __main__ - INFO - 
+============================================================
+2025-10-29 20:52:53,205 - __main__ - INFO - EJECUTANDO SINCRONIZACION (DRY RUN)
+2025-10-29 20:52:53,205 - __main__ - INFO - ============================================================
+2025-10-29 20:52:53,205 - __main__ - INFO - Usando ventana detectada: 3D
+2025-10-29 20:52:53,205 - app.application.services.client_accounts_simulation_service - INFO - === INICIANDO SINCRONIZACION DE CUENTAS ===
+  Fecha: 2025-10-07
+  Simulacion: test_sync_001
+  Ventana: 3D
+  Dry Run: True
+2025-10-29 20:52:53,614 - app.application.services.client_accounts_simulation_service - INFO - Actualizando ROI de cuentas para 2025-10-07
+2025-10-29 20:52:53,770 - app.application.services.client_accounts_simulation_service - INFO - DEBUG: Top16 encontrados: 16
+2025-10-29 20:52:53,770 - app.application.services.client_accounts_simulation_service - INFO - DEBUG: Buscando campo 'roi_3d' en agentes
+2025-10-29 20:52:53,770 - app.application.services.client_accounts_simulation_service - INFO - DEBUG: ROI map creado con 16 agentes
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - INFO - DEBUG: Cuentas activas encontradas: 1000
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,360 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,361 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,362 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-GU8 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,363 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,364 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-ER1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,365 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,366 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,367 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JM1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,368 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,369 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,370 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,371 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-JF1 no encontrado en Top16
+2025-10-29 20:53:01,373 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,374 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,375 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CP1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,376 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,377 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_GB1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,378 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,379 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente futures-CM1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,380 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,381 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - WARNING - Agente OKX_CP1 no encontrado en Top16
+2025-10-29 20:53:01,382 - app.application.services.client_accounts_simulation_service - INFO - DRY RUN: 500 cuentas se actualizarian
+2025-10-29 20:53:01,609 - app.application.services.client_accounts_simulation_service - INFO - Actualizacion completada:
+  Total: 500 cuentas
+  Con ganancia: 0
+  Con perdida: 500
+  Balance total: $5,568,062.85
+  ROI promedio: 456.81%
+2025-10-29 20:53:01,764 - app.application.services.client_accounts_simulation_service - INFO - === SINCRONIZACION COMPLETADA ===
+  Cuentas actualizadas: 500
+  Cuentas redistribuidas: 0
+  Rotaciones procesadas: 0
+  Balance: $5,568,062.85 \u2192 $5,568,062.85
+  ROI: 456.81% \u2192 456.81%
+2025-10-29 20:53:01,765 - __main__ - INFO - 
+============================================================
+2025-10-29 20:53:01,765 - __main__ - INFO - \u2705 SINCRONIZACION COMPLETADA
+2025-10-29 20:53:01,765 - __main__ - INFO - ============================================================
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f4c5 Fecha: 2025-10-07
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f4ca Cuentas actualizadas: 500
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f504 Cuentas redistribuidas: 0
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f500 Rotaciones procesadas: 0
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f4b0 Balance ANTES: $5,568,062.85
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f4b0 Balance DESPUES: $5,568,062.85
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f4c8 ROI ANTES: 456.81%
+2025-10-29 20:53:01,765 - __main__ - INFO - \U0001f4c8 ROI DESPUES: 456.81%
+2025-10-29 20:53:01,765 - __main__ - INFO - 
+============================================================
+2025-10-29 20:53:01,765 - __main__ - INFO - RESULTADO: \u2705 PRUEBA EXITOSA
+2025-10-29 20:53:01,765 - __main__ - INFO - ============================================================
+2025-10-29 20:53:01,916 - __main__ - INFO - \U0001f50c Conexion cerrada
+2025-10-29 20:53:01,919 - __main__ - INFO - 
+=== PRUEBA DE METODOS INDIVIDUALES ===
+2025-10-29 20:53:06,242 - __main__ - INFO - 
+1\ufe0f\u20e3 Probando _get_aggregate_stats()...
+2025-10-29 20:53:07,336 - __main__ - INFO -    \u2705 Total cuentas: 1000
+2025-10-29 20:53:07,337 - __main__ - INFO -    \u2705 Balance total: $5,568,062.85
+2025-10-29 20:53:07,337 - __main__ - INFO -    \u2705 ROI promedio: 456.81%
+2025-10-29 20:53:07,337 - __main__ - INFO - 
+2. Probando _get_top16_for_date()...
+2025-10-29 20:53:07,545 - __main__ - INFO -    Detectada ventana: 3D, fecha: 2025-10-05
+2025-10-29 20:53:07,652 - __main__ - INFO -    \u2705 Top 16 encontrados: 16 agentes
+2025-10-29 20:53:07,653 - __main__ - INFO -    \u2705 Primer agente: futures-JF4
+2025-10-29 20:53:07,653 - __main__ - INFO -    \u2705 ROI: 24.25%
+2025-10-29 20:53:07,653 - __main__ - INFO - 
+\u2705 TODOS LOS METODOS FUNCIONAN CORRECTAMENTE
+
+============================================================
+SCRIPT DE PRUEBA - CLIENT ACCOUNTS SIMULATION SERVICE
+============================================================
+
+
+============================================================
+PRUEBAS DE METODOS INDIVIDUALES
+============================================================
+
+
+============================================================
+Traceback (most recent call last):
+  File "C:\Users\Carlos Alvarado\Documents\CXP\PROYECTO SIMULACION\Desarrollo\Desarrollo-Boceto\backend\test_sync_service.py", line 221, in <module>
+    print("\u2705 TODAS LAS PRUEBAS COMPLETADAS")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Carlos Alvarado\AppData\Local\Programs\Python\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>

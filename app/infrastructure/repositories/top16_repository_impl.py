@@ -8,10 +8,18 @@ from app.config.database import database_manager
 class Top16RepositoryImpl(Top16Repository):
     """
     Implementacion concreta del repositorio de Top16 usando MongoDB.
+    Soporta colecciones dinámicas para diferentes ventanas de días.
     """
 
-    def __init__(self):
-        self.collection_name = "top16_by_day"
+    def __init__(self, collection_name: str = "top16_by_day"):
+        """
+        Inicializa el repositorio.
+
+        Args:
+            collection_name: Nombre de la colección (ej: "top16_7d", "top16_30d").
+                            Default: "top16_by_day" (para retrocompatibilidad)
+        """
+        self.collection_name = collection_name
 
     def delete_all(self) -> int:
         """
@@ -91,7 +99,13 @@ class Top16RepositoryImpl(Top16Repository):
             date=date.fromisoformat(doc["date"]),
             rank=doc["rank"],
             agent_id=doc["agent_id"],
-            roi_7d=doc["roi_7d"],
+            # Soportar diferentes ventanas de ROI (3d, 5d, 7d, 10d, 14d, 15d, 30d)
+            roi_3d=doc.get("roi_3d"),
+            roi_5d=doc.get("roi_5d"),
+            roi_7d=doc.get("roi_7d"),
+            roi_10d=doc.get("roi_10d"),
+            roi_14d=doc.get("roi_14d"),
+            roi_15d=doc.get("roi_15d"),
             roi_30d=doc.get("roi_30d"),
             n_accounts=doc["n_accounts"],
             total_aum=doc["total_aum"],

@@ -1,7 +1,10 @@
 from datetime import datetime
 from typing import Optional, Union
 import pytz
+import logging
 from app.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class DataNormalizer:
@@ -89,7 +92,7 @@ class DataNormalizer:
                 return DataNormalizer._ensure_timezone(parsed)
 
             except Exception as e:
-                print(f"Error parsing date '{date_value}': {e}")
+                logger.warning(f"Error parsing date '{date_value}': {e}")
                 return None
 
         return None

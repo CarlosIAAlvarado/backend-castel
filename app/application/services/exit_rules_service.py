@@ -1,73 +1,73 @@
 from typing import List, Dict, Any, Optional
 from datetime import date
 from app.domain.entities.agent_state import AgentState
-from app.infrastructure.repositories.agent_state_repository_impl import AgentStateRepositoryImpl
-from app.infrastructure.repositories.assignment_repository_impl import AssignmentRepositoryImpl
+from app.domain.repositories.agent_state_repository import AgentStateRepository
+from app.domain.repositories.assignment_repository import AssignmentRepository
+from app.domain.rules.exit_rule import ExitRule
+from app.domain.rules.consecutive_fall_rule import ConsecutiveFallRule
+from app.domain.rules.roi_threshold_rule import ROIThresholdRule
+from app.domain.rules.combined_rule import CombinedRule
 
 
 class ExitRulesService:
     """
     Servicio para evaluacion de reglas de salida de agentes.
 
-    Reglas implementadas:
-    - Regla 1: 3 dias consecutivos en caida
-    - Regla 2: Stop Loss de -10% desde entrada
+    Usa Strategy Pattern para reglas configurables y extensibles.
+
+    Reglas por defecto:
+    - ConsecutiveFallRule: 3 dias consecutivos en caida
+    - ROIThresholdRule: Stop Loss de -10% desde entrada
+    - Operador: OR (si cualquier regla se cumple, el agente sale)
 
     Responsabilidades:
-    - Evaluar si un agente debe salir de Casterly Rock
+    - Evaluar si un agente debe salir de Casterly Rock usando reglas configurables
     - Marcar agentes como OUT (is_in_casterly = False)
     - Identificar motivo de salida
+
+    Cumple con Open/Closed Principle (OCP):
+    - Abierto para extension: Se pueden agregar nuevas reglas sin modificar este codigo
+    - Cerrado para modificacion: No se modifica al agregar reglas
     """
 
-    def __init__(self):
-        self.state_repo = AgentStateRepositoryImpl()
-        self.assignment_repo = AssignmentRepositoryImpl()
-
-    def evaluate_rule_1(self, agent_state: AgentState, threshold: int = 3) -> tuple[bool, Optional[str]]:
+    def __init__(
+        self,
+        state_repo: AgentStateRepository,
+        assignment_repo: AssignmentRepository,
+        exit_rules: Optional[List[ExitRule]] = None
+    ):
         """
-        Evalua Regla 1: 3 dias consecutivos en caida.
+        Constructor con inyeccion de dependencias y reglas configurables.
 
         Args:
-            agent_state: Estado actual del agente
-            threshold: Numero minimo de dias consecutivos en caida (default: 3)
-
-        Returns:
-            Tupla (debe_salir, motivo)
+            state_repo: Repositorio de estados de agentes
+            assignment_repo: Repositorio de asignaciones
+            exit_rules: Lista de reglas personalizadas (opcional)
+                       Si es None, usa reglas por defecto
         """
-        if agent_state.fall_days >= threshold:
-            return (True, f"{agent_state.fall_days} dias consecutivos en caida (>= {threshold})")
-        return (False, None)
+        self.state_repo = state_repo
+        self.assignment_repo = assignment_repo
 
-    def evaluate_rule_2(self, agent_state: AgentState, threshold: float = -0.10) -> tuple[bool, Optional[str]]:
-        """
-        Evalua Regla 2: Stop Loss de -10% desde entrada.
-
-        Args:
-            agent_state: Estado actual del agente
-            threshold: Umbral de stop loss (default: -0.10 = -10%)
-
-        Returns:
-            Tupla (debe_salir, motivo)
-        """
-        if agent_state.roi_since_entry is not None and agent_state.roi_since_entry <= threshold:
-            return (True, f"Stop Loss alcanzado: {agent_state.roi_since_entry:.2%} (<= {threshold:.2%})")
-        return (False, None)
+        if exit_rules is None:
+            self.exit_rules = [
+                ConsecutiveFallRule(min_fall_days=3),
+                ROIThresholdRule(min_roi=-0.10)
+            ]
+            self.exit_rule = CombinedRule(self.exit_rules, operator="OR")
+        else:
+            self.exit_rule = CombinedRule(exit_rules, operator="OR")
 
     def evaluate_agent(
         self,
         agent_id: str,
-        target_date: date,
-        fall_threshold: int = 3,
-        stop_loss_threshold: float = -0.10
+        target_date: date
     ) -> Dict[str, Any]:
         """
-        Evalua todas las reglas de salida para un agente.
+        Evalua reglas de salida para un agente usando Strategy Pattern.
 
         Args:
             agent_id: ID del agente
             target_date: Fecha objetivo
-            fall_threshold: Umbral de dias consecutivos en caida
-            stop_loss_threshold: Umbral de stop loss
 
         Returns:
             Diccionario con resultado de evaluacion
@@ -88,15 +88,13 @@ class ExitRulesService:
                 "reason": "Agente ya esta fuera de Casterly Rock"
             }
 
-        should_exit_rule1, reason_rule1 = self.evaluate_rule_1(agent_state, fall_threshold)
-        should_exit_rule2, reason_rule2 = self.evaluate_rule_2(agent_state, stop_loss_threshold)
+        should_exit = self.exit_rule.should_exit(agent_state)
 
-        should_exit = should_exit_rule1 or should_exit_rule2
         reasons = []
-        if reason_rule1:
-            reasons.append(reason_rule1)
-        if reason_rule2:
-            reasons.append(reason_rule2)
+        if should_exit and isinstance(self.exit_rule, CombinedRule):
+            reasons = self.exit_rule.get_triggered_reasons(agent_state)
+        elif should_exit:
+            reasons = [self.exit_rule.get_reason()]
 
         return {
             "agent_id": agent_id,
@@ -110,18 +108,13 @@ class ExitRulesService:
 
     def evaluate_all_agents(
         self,
-        target_date: date,
-        fall_threshold: int = 3,
-        stop_loss_threshold: float = -0.10
+        target_date: date
     ) -> Dict[str, Any]:
         """
-        Evalua reglas de salida para todos los agentes activos.
-        Version optimizada que evita consultas redundantes.
+        Evalua reglas de salida para todos los agentes activos usando Strategy Pattern.
 
         Args:
             target_date: Fecha objetivo
-            fall_threshold: Umbral de dias consecutivos en caida
-            stop_loss_threshold: Umbral de stop loss
 
         Returns:
             Diccionario con resumen de evaluacion
@@ -134,15 +127,13 @@ class ExitRulesService:
         agents_to_exit = []
 
         for state in active_agents:
-            should_exit_rule1, reason_rule1 = self.evaluate_rule_1(state, fall_threshold)
-            should_exit_rule2, reason_rule2 = self.evaluate_rule_2(state, stop_loss_threshold)
+            should_exit = self.exit_rule.should_exit(state)
 
-            should_exit = should_exit_rule1 or should_exit_rule2
             reasons = []
-            if reason_rule1:
-                reasons.append(reason_rule1)
-            if reason_rule2:
-                reasons.append(reason_rule2)
+            if should_exit and isinstance(self.exit_rule, CombinedRule):
+                reasons = self.exit_rule.get_triggered_reasons(state)
+            elif should_exit:
+                reasons = [self.exit_rule.get_reason()]
 
             evaluation = {
                 "agent_id": state.agent_id,
@@ -223,26 +214,18 @@ class ExitRulesService:
 
     def mark_multiple_agents_out(
         self,
-        target_date: date,
-        fall_threshold: int = 3,
-        stop_loss_threshold: float = -0.10
+        target_date: date
     ) -> Dict[str, Any]:
         """
-        Evalua y marca multiples agentes como OUT basado en reglas.
+        Evalua y marca multiples agentes como OUT basado en reglas configurables.
 
         Args:
             target_date: Fecha objetivo
-            fall_threshold: Umbral de dias consecutivos en caida
-            stop_loss_threshold: Umbral de stop loss
 
         Returns:
             Diccionario con resumen de agentes marcados como OUT
         """
-        evaluation_result = self.evaluate_all_agents(
-            target_date,
-            fall_threshold,
-            stop_loss_threshold
-        )
+        evaluation_result = self.evaluate_all_agents(target_date)
 
         agents_to_exit = evaluation_result["agents_to_exit"]
 

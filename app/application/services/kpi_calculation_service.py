@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 from datetime import date, timedelta
 import numpy as np
-from app.application.services.data_processing_service import DataProcessingService
+from app.application.services.data_aggregation_service import DataAggregationService
 
 
 class KPICalculationService:
@@ -16,6 +16,15 @@ class KPICalculationService:
     - Max Drawdown: Maxima caida desde el pico
     - Volatilidad: Desviacion estandar de retornos
     """
+
+    def __init__(self, data_aggregation_service: DataAggregationService):
+        """
+        Constructor con inyeccion de dependencias.
+
+        Args:
+            data_aggregation_service: Servicio de agregacion de datos
+        """
+        self.data_aggregation_service = data_aggregation_service
 
     @staticmethod
     def calculate_roi_1d(
@@ -61,8 +70,8 @@ class KPICalculationService:
 
         return (total_pnl / balance_current) * 100
 
-    @staticmethod
     def calculate_roi_7d(
+        self,
         agent_id: str,
         target_date: date,
         balances_cache: Optional[Dict[str, float]] = None
@@ -78,7 +87,7 @@ class KPICalculationService:
         Returns:
             Diccionario con total_pnl, balance_current, roi_7d y datos diarios
         """
-        data = DataProcessingService.get_agent_data_with_lookback(
+        data = self.data_aggregation_service.get_agent_data_with_lookback(
             agent_id=agent_id,
             target_date=target_date,
             lookback_days=7,
@@ -94,8 +103,8 @@ class KPICalculationService:
             "daily_data": data["daily_data"]
         }
 
-    @staticmethod
     def calculate_roi_30d(
+        self,
         agent_id: str,
         target_date: date
     ) -> Dict[str, Any]:
@@ -109,7 +118,7 @@ class KPICalculationService:
         Returns:
             Diccionario con total_pnl, balance_current, roi_30d y datos diarios
         """
-        data = DataProcessingService.get_agent_data_with_lookback(
+        data = self.data_aggregation_service.get_agent_data_with_lookback(
             agent_id=agent_id,
             target_date=target_date,
             lookback_days=30
@@ -224,8 +233,8 @@ class KPICalculationService:
 
         return float(volatility)
 
-    @staticmethod
     def calculate_all_kpis(
+        self,
         agent_id: str,
         target_date: date,
         lookback_days: int = 7
@@ -241,7 +250,7 @@ class KPICalculationService:
         Returns:
             Diccionario con todos los KPIs calculados
         """
-        data = DataProcessingService.get_agent_data_with_lookback(
+        data = self.data_aggregation_service.get_agent_data_with_lookback(
             agent_id=agent_id,
             target_date=target_date,
             lookback_days=lookback_days

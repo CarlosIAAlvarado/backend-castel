@@ -2,13 +2,22 @@ from typing import List, Optional
 from datetime import date, datetime
 from bson import ObjectId
 from app.domain.repositories.assignment_repository import AssignmentRepository
+from app.domain.repositories.assignment_read_ops import AssignmentReadOps
+from app.domain.repositories.assignment_write_ops import AssignmentWriteOps
 from app.domain.entities.assignment import Assignment
 from app.config.database import database_manager
 
 
-class AssignmentRepositoryImpl(AssignmentRepository):
+class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, AssignmentWriteOps):
     """
     Implementacion concreta del repositorio de asignaciones usando MongoDB.
+
+    Implementa multiples interfaces segregadas segun ISP:
+    - AssignmentRepository: Interfaz completa (legacy, para compatibilidad)
+    - AssignmentReadOps: Solo operaciones de lectura
+    - AssignmentWriteOps: Solo operaciones de escritura
+
+    Los servicios pueden depender de la interfaz especifica que necesiten.
     """
 
     def __init__(self):
@@ -107,6 +116,17 @@ class AssignmentRepositoryImpl(AssignmentRepository):
         collection = database_manager.get_collection(self.collection_name)
 
         docs = collection.find({"date": target_date.isoformat()})
+
+        return [self._doc_to_entity(doc) for doc in docs]
+
+    def get_by_agent_and_date(self, agent_id: str, target_date: date) -> List[Assignment]:
+        """Obtiene todas las asignaciones de un agente en una fecha especifica."""
+        collection = database_manager.get_collection(self.collection_name)
+
+        docs = collection.find({
+            "agent_id": agent_id,
+            "date": target_date.isoformat()
+        })
 
         return [self._doc_to_entity(doc) for doc in docs]
 

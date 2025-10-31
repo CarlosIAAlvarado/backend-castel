@@ -1,0 +1,1465 @@
+{
+  "success": true,
+  "message": "Simulaci\u00f3n hist\u00f3rica d\u00eda por d\u00eda completada exitosamente",
+  "simulation_id": "cb5dc9a5-9310-4b9b-8a3e-cb5fa3c10eb3",
+  "cleaned_collections": [
+    {
+      "collection": "agent_states",
+      "deleted_count": 112
+    },
+    {
+      "collection": "assignments",
+      "deleted_count": 896
+    },
+    {
+      "collection": "rotation_log",
+      "deleted_count": 24
+    },
+    {
+      "collection": "top16_7d",
+      "deleted_count": 112
+    },
+    {
+      "collection": "daily_roi_calculation",
+      "deleted_count": 112
+    },
+    {
+      "collection": "agent_roi_7d",
+      "deleted_count": 880
+    }
+  ],
+  "historical_processing": {
+    "days_processed": 7,
+    "total_rotations_detected": 24,
+    "daily_results": [
+      {
+        "date": "2025-10-01",
+        "rotations_detected": 0,
+        "rank_changes_detected": 0,
+        "result": {
+          "success": true,
+          "date": "2025-10-01",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "futures-GU8",
+            "futures-ER1",
+            "futures-JR4",
+            "futures-IR1",
+            "futures-JM1",
+            "OKX_GB1",
+            "futures-GU1",
+            "futures-JF4",
+            "futures-FP3",
+            "futures-AH2",
+            "futures-CM1",
+            "futures-MP3",
+            "futures-JF3",
+            "futures-GE2",
+            "futures-JM4",
+            "futures-JC4"
+          ],
+          "top_16_data": [
+            {
+              "userId": "futures-GU8",
+              "roi_7d": 0.2453526574677397,
+              "total_pnl": 307.84240371,
+              "balance": 1544.0627981,
+              "total_trades_7d": 4,
+              "rank": 1
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.13032252268904998,
+              "total_pnl": 15.871074779999997,
+              "balance": 135.6225687,
+              "total_trades_7d": 5,
+              "rank": 2
+            },
+            {
+              "userId": "futures-JR4",
+              "roi_7d": 0.1276773458545721,
+              "total_pnl": 9.874519050000002,
+              "balance": 93.75222649,
+              "total_trades_7d": 6,
+              "rank": 3
+            },
+            {
+              "userId": "futures-IR1",
+              "roi_7d": 0.1263743015079064,
+              "total_pnl": 14.175097070000003,
+              "balance": 136.16053659,
+              "total_trades_7d": 6,
+              "rank": 4
+            },
+            {
+              "userId": "futures-JM1",
+              "roi_7d": 0.10274279645922933,
+              "total_pnl": 151.35370603,
+              "balance": 1658.93733562,
+              "total_trades_7d": 4,
+              "rank": 5
+            },
+            {
+              "userId": "OKX_GB1",
+              "roi_7d": 0.08677303222330196,
+              "total_pnl": 4.7334,
+              "balance": 54.5492058848313,
+              "total_trades_7d": 1,
+              "rank": 6
+            },
+            {
+              "userId": "futures-GU1",
+              "roi_7d": 0.07693148670107086,
+              "total_pnl": 521.9899004,
+              "balance": 7167.34756305,
+              "total_trades_7d": 3,
+              "rank": 7
+            },
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.07611812420056113,
+              "total_pnl": 10.203251049999999,
+              "balance": 143.60084708,
+              "total_trades_7d": 6,
+              "rank": 8
+            },
+            {
+              "userId": "futures-FP3",
+              "roi_7d": 0.06535552888216041,
+              "total_pnl": 3.2638164599999993,
+              "balance": 56.9221683,
+              "total_trades_7d": 3,
+              "rank": 9
+            },
+            {
+              "userId": "futures-AH2",
+              "roi_7d": 0.0645733897865425,
+              "total_pnl": 2.9223636799999997,
+              "balance": 45.68377406,
+              "total_trades_7d": 5,
+              "rank": 10
+            },
+            {
+              "userId": "futures-CM1",
+              "roi_7d": 0.053979910198333286,
+              "total_pnl": 10.36134174,
+              "balance": 202.46884993,
+              "total_trades_7d": 1,
+              "rank": 11
+            },
+            {
+              "userId": "futures-MP3",
+              "roi_7d": 0.04547345308047454,
+              "total_pnl": 0.57238059,
+              "balance": 12.76740094,
+              "total_trades_7d": 6,
+              "rank": 12
+            },
+            {
+              "userId": "futures-JF3",
+              "roi_7d": 0.04333832028417204,
+              "total_pnl": 4.9609603700000005,
+              "balance": 118.26734964,
+              "total_trades_7d": 6,
+              "rank": 13
+            },
+            {
+              "userId": "futures-GE2",
+              "roi_7d": 0.042163779104982604,
+              "total_pnl": 15.654108769999997,
+              "balance": 623.77337234,
+              "total_trades_7d": 4,
+              "rank": 14
+            },
+            {
+              "userId": "futures-JM4",
+              "roi_7d": 0.03871956461631507,
+              "total_pnl": 2.15691627,
+              "balance": 56.79442863,
+              "total_trades_7d": 9,
+              "rank": 15
+            },
+            {
+              "userId": "futures-JC4",
+              "roi_7d": 0.03196478058373203,
+              "total_pnl": 2.1060437199999997,
+              "balance": 83.37436456,
+              "total_trades_7d": 5,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 4,
+          "fall_count": 12,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 126,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d7be5848f9b0f63dd5bb",
+            "balance_total_antes": 5845929.840220823,
+            "balance_total_despues": 4578652.849399551,
+            "roi_promedio_antes": 484.59298402208225,
+            "roi_promedio_despues": 357.86528493995513
+          }
+        }
+      },
+      {
+        "date": "2025-10-02",
+        "rotations_detected": 6,
+        "rank_changes_detected": 9,
+        "result": {
+          "success": true,
+          "date": "2025-10-02",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "futures-TA3",
+            "futures-ER7",
+            "futures-LT5",
+            "futures-ER1",
+            "futures-GE2",
+            "futures-GU1",
+            "OKX_GB1",
+            "futures-JM1",
+            "futures-JF4",
+            "OKX_GLB1",
+            "futures-FP3",
+            "OKX_JC1",
+            "futures-JC4",
+            "futures-CM1",
+            "futures-JM4",
+            "futures-JF1"
+          ],
+          "top_16_data": [
+            {
+              "userId": "futures-TA3",
+              "roi_7d": 0.19783970738094578,
+              "total_pnl": 8.801866919999998,
+              "balance": 47.81204538,
+              "total_trades_7d": 4,
+              "rank": 1
+            },
+            {
+              "userId": "futures-ER7",
+              "roi_7d": 0.1886568951901864,
+              "total_pnl": 19.20068932,
+              "balance": 101.7314885,
+              "total_trades_7d": 3,
+              "rank": 2
+            },
+            {
+              "userId": "futures-LT5",
+              "roi_7d": 0.16790437599976676,
+              "total_pnl": 110.14208943,
+              "balance": 740.04548927,
+              "total_trades_7d": 3,
+              "rank": 3
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.13032252268904998,
+              "total_pnl": 15.871074779999997,
+              "balance": 135.50535371,
+              "total_trades_7d": 5,
+              "rank": 4
+            },
+            {
+              "userId": "futures-GE2",
+              "roi_7d": 0.11783675612339055,
+              "total_pnl": 65.51889423,
+              "balance": 622.67214699,
+              "total_trades_7d": 3,
+              "rank": 5
+            },
+            {
+              "userId": "futures-GU1",
+              "roi_7d": 0.09443877741989658,
+              "total_pnl": 1483.7868755,
+              "balance": 18287.33554456,
+              "total_trades_7d": 3,
+              "rank": 6
+            },
+            {
+              "userId": "OKX_GB1",
+              "roi_7d": 0.08677303222330196,
+              "total_pnl": 4.7334,
+              "balance": 54.5492058848313,
+              "total_trades_7d": 1,
+              "rank": 7
+            },
+            {
+              "userId": "futures-JM1",
+              "roi_7d": 0.08252359439502865,
+              "total_pnl": 137.17433463,
+              "balance": 1655.91944108,
+              "total_trades_7d": 3,
+              "rank": 8
+            },
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.07611812420056113,
+              "total_pnl": 10.203251049999999,
+              "balance": 143.47845983,
+              "total_trades_7d": 6,
+              "rank": 9
+            },
+            {
+              "userId": "OKX_GLB1",
+              "roi_7d": 0.06833047337005699,
+              "total_pnl": 166.2086,
+              "balance": 2286.37900846084,
+              "total_trades_7d": 2,
+              "rank": 10
+            },
+            {
+              "userId": "futures-FP3",
+              "roi_7d": 0.06482875881425641,
+              "total_pnl": 3.6088963599999997,
+              "balance": 56.88059599,
+              "total_trades_7d": 3,
+              "rank": 11
+            },
+            {
+              "userId": "OKX_JC1",
+              "roi_7d": 0.060863452997516304,
+              "total_pnl": 60.44014,
+              "balance": 993.044873784378,
+              "total_trades_7d": 2,
+              "rank": 12
+            },
+            {
+              "userId": "futures-JC4",
+              "roi_7d": 0.05728772851348012,
+              "total_pnl": 4.11275299,
+              "balance": 83.24911939,
+              "total_trades_7d": 4,
+              "rank": 13
+            },
+            {
+              "userId": "futures-CM1",
+              "roi_7d": 0.053979910198333286,
+              "total_pnl": 10.36134174,
+              "balance": 202.27219597,
+              "total_trades_7d": 1,
+              "rank": 14
+            },
+            {
+              "userId": "futures-JM4",
+              "roi_7d": 0.04435711062429479,
+              "total_pnl": 2.4789424799999997,
+              "balance": 57.12169968,
+              "total_trades_7d": 10,
+              "rank": 15
+            },
+            {
+              "userId": "futures-JF1",
+              "roi_7d": 0.042807801681501535,
+              "total_pnl": 7.275336769999999,
+              "balance": 199.5582934,
+              "total_trades_7d": 4,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 11,
+          "fall_count": 5,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 376,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d7e35848f9b0f63dd65c",
+            "balance_total_antes": 4578652.849399551,
+            "balance_total_despues": 3666852.391872138,
+            "roi_promedio_antes": 357.86528493995513,
+            "roi_promedio_despues": 266.68523918721377
+          }
+        }
+      },
+      {
+        "date": "2025-10-03",
+        "rotations_detected": 5,
+        "rank_changes_detected": 11,
+        "result": {
+          "success": true,
+          "date": "2025-10-03",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "futures-LT5",
+            "OKX_JRI1",
+            "futures-ER2",
+            "futures-TA3",
+            "futures-ER7",
+            "futures-GU8",
+            "OKX_EG1",
+            "futures-GE2",
+            "OKX_GLB1",
+            "futures-CP1",
+            "futures-CM1",
+            "futures-JC4",
+            "futures-JF4",
+            "OKX_JC1",
+            "futures-ER1",
+            "futures-JM4"
+          ],
+          "top_16_data": [
+            {
+              "userId": "futures-LT5",
+              "roi_7d": 0.23570280734297422,
+              "total_pnl": 167.18203729,
+              "balance": 964.42843614,
+              "total_trades_7d": 3,
+              "rank": 1
+            },
+            {
+              "userId": "OKX_JRI1",
+              "roi_7d": 0.16499702944821915,
+              "total_pnl": 164.70517999999998,
+              "balance": 998.231183832372,
+              "total_trades_7d": 2,
+              "rank": 2
+            },
+            {
+              "userId": "futures-ER2",
+              "roi_7d": 0.16243233383607353,
+              "total_pnl": 17.79744606,
+              "balance": 113.84829958,
+              "total_trades_7d": 3,
+              "rank": 3
+            },
+            {
+              "userId": "futures-TA3",
+              "roi_7d": 0.1535034260383477,
+              "total_pnl": 5.962520879999998,
+              "balance": 64.04114089,
+              "total_trades_7d": 5,
+              "rank": 4
+            },
+            {
+              "userId": "futures-ER7",
+              "roi_7d": 0.12897138388056112,
+              "total_pnl": 12.60070382,
+              "balance": 118.16389093,
+              "total_trades_7d": 3,
+              "rank": 5
+            },
+            {
+              "userId": "futures-GU8",
+              "roi_7d": 0.12107904548747653,
+              "total_pnl": 186.67106882,
+              "balance": 1542.31522675,
+              "total_trades_7d": 2,
+              "rank": 6
+            },
+            {
+              "userId": "OKX_EG1",
+              "roi_7d": 0.12032008968750542,
+              "total_pnl": 142.5882,
+              "balance": 1185.07391716819,
+              "total_trades_7d": 1,
+              "rank": 7
+            },
+            {
+              "userId": "futures-GE2",
+              "roi_7d": 0.1122088705137864,
+              "total_pnl": 55.321889670000004,
+              "balance": 776.33422489,
+              "total_trades_7d": 3,
+              "rank": 8
+            },
+            {
+              "userId": "OKX_GLB1",
+              "roi_7d": 0.09337410779664115,
+              "total_pnl": 213.4886,
+              "balance": 2495.50058252227,
+              "total_trades_7d": 1,
+              "rank": 9
+            },
+            {
+              "userId": "futures-CP1",
+              "roi_7d": 0.07444053632988348,
+              "total_pnl": 555.8084117999999,
+              "balance": 7491.11757204,
+              "total_trades_7d": 2,
+              "rank": 10
+            },
+            {
+              "userId": "futures-CM1",
+              "roi_7d": 0.06362643141594629,
+              "total_pnl": 12.87001211,
+              "balance": 202.27461801,
+              "total_trades_7d": 1,
+              "rank": 11
+            },
+            {
+              "userId": "futures-JC4",
+              "roi_7d": 0.06354032364445655,
+              "total_pnl": 4.8676808000000005,
+              "balance": 83.23982491,
+              "total_trades_7d": 4,
+              "rank": 12
+            },
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.06158407290150156,
+              "total_pnl": 8.089780429999998,
+              "balance": 143.43383213,
+              "total_trades_7d": 4,
+              "rank": 13
+            },
+            {
+              "userId": "OKX_JC1",
+              "roi_7d": 0.060863452997516304,
+              "total_pnl": 60.44014,
+              "balance": 1058.52492200192,
+              "total_trades_7d": 2,
+              "rank": 14
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.059809911901654945,
+              "total_pnl": 7.43344122,
+              "balance": 135.47126966,
+              "total_trades_7d": 4,
+              "rank": 15
+            },
+            {
+              "userId": "futures-JM4",
+              "roi_7d": 0.04761212908887982,
+              "total_pnl": 2.6659996999999995,
+              "balance": 57.46732992,
+              "total_trades_7d": 11,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 8,
+          "fall_count": 8,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 627,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d8105848f9b0f63dd70c",
+            "balance_total_antes": 3666852.391872138,
+            "balance_total_despues": 2202003.298747483,
+            "roi_promedio_antes": 266.68523918721377,
+            "roi_promedio_despues": 120.2003298747483
+          }
+        }
+      },
+      {
+        "date": "2025-10-04",
+        "rotations_detected": 2,
+        "rank_changes_detected": 13,
+        "result": {
+          "success": true,
+          "date": "2025-10-04",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "futures-JF4",
+            "futures-ER1",
+            "futures-LT5",
+            "OKX_JRI1",
+            "futures-TA3",
+            "futures-ER7",
+            "futures-GU8",
+            "OKX_EG1",
+            "futures-ER2",
+            "futures-GE2",
+            "OKX_GLB1",
+            "futures-CP1",
+            "futures-CM1",
+            "OKX_JC1",
+            "futures-JC1",
+            "futures-GU10"
+          ],
+          "top_16_data": [
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.3438721902391706,
+              "total_pnl": 48.54576677,
+              "balance": 143.31452107,
+              "total_trades_7d": 5,
+              "rank": 1
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.33940543934980894,
+              "total_pnl": 45.27936392,
+              "balance": 135.35954257,
+              "total_trades_7d": 5,
+              "rank": 2
+            },
+            {
+              "userId": "futures-LT5",
+              "roi_7d": 0.23570280734297422,
+              "total_pnl": 167.18203729,
+              "balance": 964.3436464,
+              "total_trades_7d": 3,
+              "rank": 3
+            },
+            {
+              "userId": "OKX_JRI1",
+              "roi_7d": 0.16499702944821915,
+              "total_pnl": 164.70517999999998,
+              "balance": 1160.61686346445,
+              "total_trades_7d": 2,
+              "rank": 4
+            },
+            {
+              "userId": "futures-TA3",
+              "roi_7d": 0.1535034260383477,
+              "total_pnl": 5.962520879999998,
+              "balance": 61.1935308,
+              "total_trades_7d": 5,
+              "rank": 5
+            },
+            {
+              "userId": "futures-ER7",
+              "roi_7d": 0.12897138388056112,
+              "total_pnl": 12.60070382,
+              "balance": 118.14016293,
+              "total_trades_7d": 3,
+              "rank": 6
+            },
+            {
+              "userId": "futures-GU8",
+              "roi_7d": 0.12107904548747653,
+              "total_pnl": 186.67106882,
+              "balance": 1794.44669546,
+              "total_trades_7d": 2,
+              "rank": 7
+            },
+            {
+              "userId": "OKX_EG1",
+              "roi_7d": 0.12032008968750542,
+              "total_pnl": 142.5882,
+              "balance": 1381.63180856077,
+              "total_trades_7d": 1,
+              "rank": 8
+            },
+            {
+              "userId": "futures-ER2",
+              "roi_7d": 0.1139340134203404,
+              "total_pnl": 11.795179979999999,
+              "balance": 123.76234947,
+              "total_trades_7d": 4,
+              "rank": 9
+            },
+            {
+              "userId": "futures-GE2",
+              "roi_7d": 0.1122088705137864,
+              "total_pnl": 55.321889670000004,
+              "balance": 704.6404719,
+              "total_trades_7d": 3,
+              "rank": 10
+            },
+            {
+              "userId": "OKX_GLB1",
+              "roi_7d": 0.09337410779664115,
+              "total_pnl": 213.4886,
+              "balance": 2495.50058252227,
+              "total_trades_7d": 1,
+              "rank": 11
+            },
+            {
+              "userId": "futures-CP1",
+              "roi_7d": 0.07444053632988348,
+              "total_pnl": 555.8084117999999,
+              "balance": 8025.80403466,
+              "total_trades_7d": 2,
+              "rank": 12
+            },
+            {
+              "userId": "futures-CM1",
+              "roi_7d": 0.06362643141594629,
+              "total_pnl": 12.87001211,
+              "balance": 215.45466011,
+              "total_trades_7d": 1,
+              "rank": 13
+            },
+            {
+              "userId": "OKX_JC1",
+              "roi_7d": 0.060863452997516304,
+              "total_pnl": 60.44014,
+              "balance": 1058.52492200192,
+              "total_trades_7d": 2,
+              "rank": 14
+            },
+            {
+              "userId": "futures-JC1",
+              "roi_7d": 0.05867871552744976,
+              "total_pnl": 4.578290920000001,
+              "balance": 74.51564346,
+              "total_trades_7d": 3,
+              "rank": 15
+            },
+            {
+              "userId": "futures-GU10",
+              "roi_7d": 0.05849937094487971,
+              "total_pnl": 3.34126008,
+              "balance": 54.5409981,
+              "total_trades_7d": 3,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 2,
+          "fall_count": 14,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 627,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d83c5848f9b0f63dd7bd",
+            "balance_total_antes": 2202003.298747483,
+            "balance_total_despues": 2234346.5741827986,
+            "roi_promedio_antes": 120.2003298747483,
+            "roi_promedio_despues": 123.43465741827988
+          }
+        }
+      },
+      {
+        "date": "2025-10-05",
+        "rotations_detected": 2,
+        "rank_changes_detected": 8,
+        "result": {
+          "success": true,
+          "date": "2025-10-05",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "futures-JF4",
+            "futures-ER1",
+            "futures-LT5",
+            "OKX_JRI1",
+            "futures-TA3",
+            "OKX_EG1",
+            "futures-ER2",
+            "futures-ER7",
+            "OKX_GLB1",
+            "futures-CP1",
+            "futures-GU8",
+            "futures-CM1",
+            "futures-GE2",
+            "OKX_JC1",
+            "futures-JC4",
+            "OKX_CM1"
+          ],
+          "top_16_data": [
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.3016164833057008,
+              "total_pnl": 41.168134550000005,
+              "balance": 177.01836031,
+              "total_trades_7d": 5,
+              "rank": 1
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.29831159762443826,
+              "total_pnl": 38.51016920000001,
+              "balance": 167.03108622,
+              "total_trades_7d": 5,
+              "rank": 2
+            },
+            {
+              "userId": "futures-LT5",
+              "roi_7d": 0.2171287204689415,
+              "total_pnl": 149.28018508000002,
+              "balance": 963.80792937,
+              "total_trades_7d": 4,
+              "rank": 3
+            },
+            {
+              "userId": "OKX_JRI1",
+              "roi_7d": 0.1849183681963954,
+              "total_pnl": 188.20677999999998,
+              "balance": 1179.71991225497,
+              "total_trades_7d": 3,
+              "rank": 4
+            },
+            {
+              "userId": "futures-TA3",
+              "roi_7d": 0.15401522040883275,
+              "total_pnl": 5.723294479999998,
+              "balance": 58.43098173,
+              "total_trades_7d": 5,
+              "rank": 5
+            },
+            {
+              "userId": "OKX_EG1",
+              "roi_7d": 0.12032008968750542,
+              "total_pnl": 142.5882,
+              "balance": 1381.63180856077,
+              "total_trades_7d": 1,
+              "rank": 6
+            },
+            {
+              "userId": "futures-ER2",
+              "roi_7d": 0.1139340134203404,
+              "total_pnl": 11.795179979999999,
+              "balance": 117.87077717,
+              "total_trades_7d": 4,
+              "rank": 7
+            },
+            {
+              "userId": "futures-ER7",
+              "roi_7d": 0.11092726073792947,
+              "total_pnl": 10.46995441,
+              "balance": 118.08550591,
+              "total_trades_7d": 4,
+              "rank": 8
+            },
+            {
+              "userId": "OKX_GLB1",
+              "roi_7d": 0.09337410779664115,
+              "total_pnl": 213.4886,
+              "balance": 2495.50058252227,
+              "total_trades_7d": 1,
+              "rank": 9
+            },
+            {
+              "userId": "futures-CP1",
+              "roi_7d": 0.07444053632988348,
+              "total_pnl": 555.8084117999999,
+              "balance": 8015.07650017,
+              "total_trades_7d": 2,
+              "rank": 10
+            },
+            {
+              "userId": "futures-GU8",
+              "roi_7d": 0.07113362881635492,
+              "total_pnl": 97.09405171999998,
+              "balance": 1793.49824409,
+              "total_trades_7d": 3,
+              "rank": 11
+            },
+            {
+              "userId": "futures-CM1",
+              "roi_7d": 0.06362643141594629,
+              "total_pnl": 12.87001211,
+              "balance": 215.3315268,
+              "total_trades_7d": 1,
+              "rank": 12
+            },
+            {
+              "userId": "futures-GE2",
+              "roi_7d": 0.062330388129996486,
+              "total_pnl": 20.193647670000004,
+              "balance": 704.27647998,
+              "total_trades_7d": 4,
+              "rank": 13
+            },
+            {
+              "userId": "OKX_JC1",
+              "roi_7d": 0.060863452997516304,
+              "total_pnl": 60.44014,
+              "balance": 1058.52492200192,
+              "total_trades_7d": 2,
+              "rank": 14
+            },
+            {
+              "userId": "futures-JC4",
+              "roi_7d": 0.05011599890007995,
+              "total_pnl": 3.6922216800000003,
+              "balance": 87.52250788,
+              "total_trades_7d": 5,
+              "rank": 15
+            },
+            {
+              "userId": "OKX_CM1",
+              "roi_7d": 0.04109282007863106,
+              "total_pnl": 118.84149999999997,
+              "balance": 3960.27467254579,
+              "total_trades_7d": 3,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 1,
+          "fall_count": 15,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 689,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d8645848f9b0f63dd86d",
+            "balance_total_antes": 2234346.5741827986,
+            "balance_total_despues": 2094726.8436921767,
+            "roi_promedio_antes": 123.43465741827988,
+            "roi_promedio_despues": 109.47268436921767
+          }
+        }
+      },
+      {
+        "date": "2025-10-06",
+        "rotations_detected": 5,
+        "rank_changes_detected": 8,
+        "result": {
+          "success": true,
+          "date": "2025-10-06",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "OKX_JRI1",
+            "OKX_GU1",
+            "futures-LT5",
+            "futures-JF4",
+            "futures-ER1",
+            "OKX_EG1",
+            "OKX_ER1",
+            "OKX_GLB1",
+            "futures-CM1",
+            "futures-ER2",
+            "futures-ER7",
+            "OKX_DC1",
+            "futures-LS1",
+            "futures-CP1",
+            "IR1_OKX",
+            "OKX_CM1"
+          ],
+          "top_16_data": [
+            {
+              "userId": "OKX_JRI1",
+              "roi_7d": 0.24181899291475825,
+              "total_pnl": 255.33357999999998,
+              "balance": 1179.71991225497,
+              "total_trades_7d": 4,
+              "rank": 1
+            },
+            {
+              "userId": "OKX_GU1",
+              "roi_7d": 0.21859692941896072,
+              "total_pnl": 699.6919969999999,
+              "balance": 1741.51498155533,
+              "total_trades_7d": 5,
+              "rank": 2
+            },
+            {
+              "userId": "futures-LT5",
+              "roi_7d": 0.2171287204689415,
+              "total_pnl": 149.28018508000002,
+              "balance": 946.04540405,
+              "total_trades_7d": 4,
+              "rank": 3
+            },
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.2144077143329139,
+              "total_pnl": 29.334900460000004,
+              "balance": 177.04189655,
+              "total_trades_7d": 4,
+              "rank": 4
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.21305413111332044,
+              "total_pnl": 27.566558190000002,
+              "balance": 167.04444379,
+              "total_trades_7d": 4,
+              "rank": 5
+            },
+            {
+              "userId": "OKX_EG1",
+              "roi_7d": 0.17072867145904813,
+              "total_pnl": 212.23430000000002,
+              "balance": 1381.63180856077,
+              "total_trades_7d": 2,
+              "rank": 6
+            },
+            {
+              "userId": "OKX_ER1",
+              "roi_7d": 0.12209555554267003,
+              "total_pnl": 124.12298000000001,
+              "balance": 1016.60522462275,
+              "total_trades_7d": 3,
+              "rank": 7
+            },
+            {
+              "userId": "OKX_GLB1",
+              "roi_7d": 0.11798007280023859,
+              "total_pnl": 274.89279999999997,
+              "balance": 2495.50058252227,
+              "total_trades_7d": 2,
+              "rank": 8
+            },
+            {
+              "userId": "futures-CM1",
+              "roi_7d": 0.11537181753116624,
+              "total_pnl": 24.01417395,
+              "balance": 215.36532388,
+              "total_trades_7d": 2,
+              "rank": 9
+            },
+            {
+              "userId": "futures-ER2",
+              "roi_7d": 0.1139340134203404,
+              "total_pnl": 11.795179979999999,
+              "balance": 117.89092735,
+              "total_trades_7d": 4,
+              "rank": 10
+            },
+            {
+              "userId": "futures-ER7",
+              "roi_7d": 0.11092726073792947,
+              "total_pnl": 10.46995441,
+              "balance": 115.97138281,
+              "total_trades_7d": 4,
+              "rank": 11
+            },
+            {
+              "userId": "OKX_DC1",
+              "roi_7d": 0.10319113314403357,
+              "total_pnl": 5.3284199999999995,
+              "balance": 51.6368637942401,
+              "total_trades_7d": 3,
+              "rank": 12
+            },
+            {
+              "userId": "futures-LS1",
+              "roi_7d": 0.09940091779583528,
+              "total_pnl": 50.42014182,
+              "balance": 509.4775336,
+              "total_trades_7d": 2,
+              "rank": 13
+            },
+            {
+              "userId": "futures-CP1",
+              "roi_7d": 0.09295290426475798,
+              "total_pnl": 704.060584,
+              "balance": 8008.27710002,
+              "total_trades_7d": 3,
+              "rank": 14
+            },
+            {
+              "userId": "IR1_OKX",
+              "roi_7d": 0.07909055166732533,
+              "total_pnl": 156.9816,
+              "balance": 2055.34233776861,
+              "total_trades_7d": 2,
+              "rank": 15
+            },
+            {
+              "userId": "OKX_CM1",
+              "roi_7d": 0.07344815115364152,
+              "total_pnl": 206.8046,
+              "balance": 3960.27467254579,
+              "total_trades_7d": 4,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 10,
+          "fall_count": 6,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 751,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d88c5848f9b0f63dd918",
+            "balance_total_antes": 2094726.8436921767,
+            "balance_total_despues": 1377929.1504131558,
+            "roi_promedio_antes": 109.47268436921767,
+            "roi_promedio_despues": 37.79291504131558
+          }
+        }
+      },
+      {
+        "date": "2025-10-07",
+        "rotations_detected": 4,
+        "rank_changes_detected": 12,
+        "result": {
+          "success": true,
+          "date": "2025-10-07",
+          "phase": "single_date_calculation",
+          "top_16_agents": [
+            "futures-JF4",
+            "OKX_JRI1",
+            "futures-ER1",
+            "OKX_EG1",
+            "OKX_GU1",
+            "futures-TA3",
+            "futures-ER2",
+            "futures-LT5",
+            "OKX_ER1",
+            "OKX_GLB1",
+            "futures-CP1",
+            "IR1_OKX",
+            "OKX_CM1",
+            "OKX_AN1",
+            "OKX_JC1",
+            "OKX_YP1"
+          ],
+          "top_16_data": [
+            {
+              "userId": "futures-JF4",
+              "roi_7d": 0.3025998147555493,
+              "total_pnl": 44.59788914,
+              "balance": 176.83106553,
+              "total_trades_7d": 5,
+              "rank": 1
+            },
+            {
+              "userId": "OKX_JRI1",
+              "roi_7d": 0.2418190129152148,
+              "total_pnl": 255.3336,
+              "balance": 1241.61043653497,
+              "total_trades_7d": 3,
+              "rank": 2
+            },
+            {
+              "userId": "futures-ER1",
+              "roi_7d": 0.2243065410635398,
+              "total_pnl": 29.134112790000003,
+              "balance": 166.84491832,
+              "total_trades_7d": 3,
+              "rank": 3
+            },
+            {
+              "userId": "OKX_EG1",
+              "roi_7d": 0.17072867145904813,
+              "total_pnl": 212.23430000000002,
+              "balance": 1445.14503463077,
+              "total_trades_7d": 2,
+              "rank": 4
+            },
+            {
+              "userId": "OKX_GU1",
+              "roi_7d": 0.1616808783087815,
+              "total_pnl": 560.5630929999999,
+              "balance": 2444.45813239347,
+              "total_trades_7d": 11,
+              "rank": 5
+            },
+            {
+              "userId": "futures-TA3",
+              "roi_7d": 0.15846129457291713,
+              "total_pnl": 5.451510599999997,
+              "balance": 53.41263261,
+              "total_trades_7d": 5,
+              "rank": 6
+            },
+            {
+              "userId": "futures-ER2",
+              "roi_7d": 0.15826117488252978,
+              "total_pnl": 16.881136339999998,
+              "balance": 117.75110466,
+              "total_trades_7d": 5,
+              "rank": 7
+            },
+            {
+              "userId": "futures-LT5",
+              "roi_7d": 0.14802680221551373,
+              "total_pnl": 88.12843960000002,
+              "balance": 884.95004228,
+              "total_trades_7d": 5,
+              "rank": 8
+            },
+            {
+              "userId": "OKX_ER1",
+              "roi_7d": 0.12209557554267003,
+              "total_pnl": 124.123,
+              "balance": 1111.29096843275,
+              "total_trades_7d": 2,
+              "rank": 9
+            },
+            {
+              "userId": "OKX_GLB1",
+              "roi_7d": 0.11798007280023859,
+              "total_pnl": 274.89279999999997,
+              "balance": 2551.36608074227,
+              "total_trades_7d": 2,
+              "rank": 10
+            },
+            {
+              "userId": "futures-CP1",
+              "roi_7d": 0.09295290426475798,
+              "total_pnl": 704.060584,
+              "balance": 8171.82976805,
+              "total_trades_7d": 3,
+              "rank": 11
+            },
+            {
+              "userId": "IR1_OKX",
+              "roi_7d": 0.07909055166732533,
+              "total_pnl": 156.9816,
+              "balance": 2146.76915376861,
+              "total_trades_7d": 2,
+              "rank": 12
+            },
+            {
+              "userId": "OKX_CM1",
+              "roi_7d": 0.07344815115364152,
+              "total_pnl": 206.8046,
+              "balance": 4051.64993556579,
+              "total_trades_7d": 4,
+              "rank": 13
+            },
+            {
+              "userId": "OKX_AN1",
+              "roi_7d": 0.07183840714160838,
+              "total_pnl": 73.0313,
+              "balance": 1064.70932770275,
+              "total_trades_7d": 2,
+              "rank": 14
+            },
+            {
+              "userId": "OKX_JC1",
+              "roi_7d": 0.060863452997516304,
+              "total_pnl": 60.44014,
+              "balance": 1058.52492200192,
+              "total_trades_7d": 2,
+              "rank": 15
+            },
+            {
+              "userId": "OKX_YP1",
+              "roi_7d": 0.05630079614644411,
+              "total_pnl": 178.58859999999999,
+              "balance": 3366.33174908116,
+              "total_trades_7d": 3,
+              "rank": 16
+            }
+          ],
+          "total_accounts_assigned": 128,
+          "states_classified": 16,
+          "growth_count": 2,
+          "fall_count": 14,
+          "cache_cleared": {
+            "daily_roi": 0,
+            "roi_7d": 0
+          },
+          "client_accounts_sync": {
+            "success": true,
+            "cuentas_actualizadas": 1000,
+            "cuentas_redistribuidas": 0,
+            "rotaciones_procesadas": 0,
+            "snapshot_id": "6902d8b25848f9b0f63dd9c6",
+            "balance_total_antes": 1377929.1504131558,
+            "balance_total_despues": 1138933.494314958,
+            "roi_promedio_antes": 37.79291504131558,
+            "roi_promedio_despues": 13.893349431495807
+          }
+        }
+      }
+    ]
+  },
+  "redistribution": {
+    "cuentas_reasignadas": 0,
+    "num_agentes_top16": 16,
+    "cuentas_por_agente": 62,
+    "error": null
+  },
+  "roi_update": {
+    "cuentas_actualizadas": 1000,
+    "error": null
+  },
+  "simulation_info": {
+    "target_date": "2025-10-07",
+    "window_start": "2025-10-01",
+    "window_end": "2025-10-07",
+    "days_in_window": 7,
+    "description": "Simulaci\u00f3n hist\u00f3rica d\u00eda por d\u00eda desde 2025-10-01 hasta 2025-10-07"
+  },
+  "data": {
+    "success": true,
+    "date": "2025-10-07",
+    "phase": "single_date_calculation",
+    "top_16_agents": [
+      "futures-JF4",
+      "OKX_JRI1",
+      "futures-ER1",
+      "OKX_EG1",
+      "OKX_GU1",
+      "futures-TA3",
+      "futures-ER2",
+      "futures-LT5",
+      "OKX_ER1",
+      "OKX_GLB1",
+      "futures-CP1",
+      "IR1_OKX",
+      "OKX_CM1",
+      "OKX_AN1",
+      "OKX_JC1",
+      "OKX_YP1"
+    ],
+    "top_16_data": [
+      {
+        "userId": "futures-JF4",
+        "roi_7d": 0.3025998147555493,
+        "total_pnl": 44.59788914,
+        "balance": 176.83106553,
+        "total_trades_7d": 5,
+        "rank": 1
+      },
+      {
+        "userId": "OKX_JRI1",
+        "roi_7d": 0.2418190129152148,
+        "total_pnl": 255.3336,
+        "balance": 1241.61043653497,
+        "total_trades_7d": 3,
+        "rank": 2
+      },
+      {
+        "userId": "futures-ER1",
+        "roi_7d": 0.2243065410635398,
+        "total_pnl": 29.134112790000003,
+        "balance": 166.84491832,
+        "total_trades_7d": 3,
+        "rank": 3
+      },
+      {
+        "userId": "OKX_EG1",
+        "roi_7d": 0.17072867145904813,
+        "total_pnl": 212.23430000000002,
+        "balance": 1445.14503463077,
+        "total_trades_7d": 2,
+        "rank": 4
+      },
+      {
+        "userId": "OKX_GU1",
+        "roi_7d": 0.1616808783087815,
+        "total_pnl": 560.5630929999999,
+        "balance": 2444.45813239347,
+        "total_trades_7d": 11,
+        "rank": 5
+      },
+      {
+        "userId": "futures-TA3",
+        "roi_7d": 0.15846129457291713,
+        "total_pnl": 5.451510599999997,
+        "balance": 53.41263261,
+        "total_trades_7d": 5,
+        "rank": 6
+      },
+      {
+        "userId": "futures-ER2",
+        "roi_7d": 0.15826117488252978,
+        "total_pnl": 16.881136339999998,
+        "balance": 117.75110466,
+        "total_trades_7d": 5,
+        "rank": 7
+      },
+      {
+        "userId": "futures-LT5",
+        "roi_7d": 0.14802680221551373,
+        "total_pnl": 88.12843960000002,
+        "balance": 884.95004228,
+        "total_trades_7d": 5,
+        "rank": 8
+      },
+      {
+        "userId": "OKX_ER1",
+        "roi_7d": 0.12209557554267003,
+        "total_pnl": 124.123,
+        "balance": 1111.29096843275,
+        "total_trades_7d": 2,
+        "rank": 9
+      },
+      {
+        "userId": "OKX_GLB1",
+        "roi_7d": 0.11798007280023859,
+        "total_pnl": 274.89279999999997,
+        "balance": 2551.36608074227,
+        "total_trades_7d": 2,
+        "rank": 10
+      },
+      {
+        "userId": "futures-CP1",
+        "roi_7d": 0.09295290426475798,
+        "total_pnl": 704.060584,
+        "balance": 8171.82976805,
+        "total_trades_7d": 3,
+        "rank": 11
+      },
+      {
+        "userId": "IR1_OKX",
+        "roi_7d": 0.07909055166732533,
+        "total_pnl": 156.9816,
+        "balance": 2146.76915376861,
+        "total_trades_7d": 2,
+        "rank": 12
+      },
+      {
+        "userId": "OKX_CM1",
+        "roi_7d": 0.07344815115364152,
+        "total_pnl": 206.8046,
+        "balance": 4051.64993556579,
+        "total_trades_7d": 4,
+        "rank": 13
+      },
+      {
+        "userId": "OKX_AN1",
+        "roi_7d": 0.07183840714160838,
+        "total_pnl": 73.0313,
+        "balance": 1064.70932770275,
+        "total_trades_7d": 2,
+        "rank": 14
+      },
+      {
+        "userId": "OKX_JC1",
+        "roi_7d": 0.060863452997516304,
+        "total_pnl": 60.44014,
+        "balance": 1058.52492200192,
+        "total_trades_7d": 2,
+        "rank": 15
+      },
+      {
+        "userId": "OKX_YP1",
+        "roi_7d": 0.05630079614644411,
+        "total_pnl": 178.58859999999999,
+        "balance": 3366.33174908116,
+        "total_trades_7d": 3,
+        "rank": 16
+      }
+    ],
+    "total_accounts_assigned": 128,
+    "states_classified": 16,
+    "growth_count": 2,
+    "fall_count": 14,
+    "cache_cleared": {
+      "daily_roi": 0,
+      "roi_7d": 0
+    },
+    "client_accounts_sync": {
+      "success": true,
+      "cuentas_actualizadas": 1000,
+      "cuentas_redistribuidas": 0,
+      "rotaciones_procesadas": 0,
+      "snapshot_id": "6902d8b25848f9b0f63dd9c6",
+      "balance_total_antes": 1377929.1504131558,
+      "balance_total_despues": 1138933.494314958,
+      "roi_promedio_antes": 37.79291504131558,
+      "roi_promedio_despues": 13.893349431495807
+    }
+  }
+}

@@ -59,6 +59,7 @@ class AgentState(BaseModel):
     roi_day: float
     pnl_day: float
     balance_base: float
+    balance: Optional[float] = Field(default=None, description="Balance total del agente (suma de todas sus cuentas)")
     fall_days: int = Field(default=0, ge=0)
     is_in_casterly: bool = Field(default=True)
     roi_since_entry: Optional[float] = Field(default=None)

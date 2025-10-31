@@ -3,8 +3,8 @@ from datetime import date, datetime
 import random
 import pytz
 from app.domain.entities.assignment import Assignment
-from app.infrastructure.repositories.assignment_repository_impl import AssignmentRepositoryImpl
-from app.infrastructure.repositories.balance_repository_impl import BalanceRepositoryImpl
+from app.domain.repositories.assignment_repository import AssignmentRepository
+from app.domain.repositories.balance_repository import BalanceRepository
 from app.application.services.selection_service import SelectionService
 
 
@@ -19,10 +19,23 @@ class AssignmentService:
     - Consultar asignaciones activas
     """
 
-    def __init__(self):
-        self.assignment_repo = AssignmentRepositoryImpl()
-        self.balance_repo = BalanceRepositoryImpl()
-        self.selection_service = SelectionService()
+    def __init__(
+        self,
+        assignment_repo: AssignmentRepository,
+        balance_repo: BalanceRepository,
+        selection_service: SelectionService
+    ):
+        """
+        Constructor con inyeccion de dependencias.
+
+        Args:
+            assignment_repo: Repositorio de asignaciones
+            balance_repo: Repositorio de balances
+            selection_service: Servicio de seleccion de agentes
+        """
+        self.assignment_repo = assignment_repo
+        self.balance_repo = balance_repo
+        self.selection_service = selection_service
         self.timezone = pytz.timezone("America/Bogota")
 
     def get_available_accounts(self, target_date: date) -> List[Dict[str, Any]]:

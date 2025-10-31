@@ -2,13 +2,18 @@ from typing import List, Optional
 from datetime import date, datetime, timedelta
 from bson import ObjectId
 from app.domain.repositories.agent_state_repository import AgentStateRepository
+from app.domain.repositories.agent_state_queries import AgentStateFallQueries
 from app.domain.entities.agent_state import AgentState
 from app.config.database import database_manager
 
 
-class AgentStateRepositoryImpl(AgentStateRepository):
+class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
     """
     Implementacion concreta del repositorio de estados de agentes usando MongoDB.
+
+    Implementa multiples interfaces especializadas segun ISP:
+    - AgentStateRepository: Operaciones CRUD basicas y de historial
+    - AgentStateFallQueries: Operaciones especializadas de analisis de caidas
     """
 
     def __init__(self):
@@ -173,6 +178,56 @@ class AgentStateRepositoryImpl(AgentStateRepository):
         })
 
         return [self._doc_to_entity(doc) for doc in docs]
+
+    def get_fall_statistics(self, target_date: date) -> dict:
+        """Obtiene estadisticas de agentes en caida."""
+        collection = database_manager.get_collection(self.collection_name)
+
+        pipeline = [
+            {
+                "$match": {
+                    "date": target_date.isoformat(),
+                    "fall_days": {"$gt": 0},
+                    "is_in_casterly": True
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "total_in_fall": {"$sum": 1},
+                    "avg_fall_days": {"$avg": "$fall_days"},
+                    "max_fall_days": {"$max": "$fall_days"},
+                    "fall_days_list": {"$push": "$fall_days"}
+                }
+            }
+        ]
+
+        result = list(collection.aggregate(pipeline))
+
+        if not result:
+            return {
+                "total_in_fall": 0,
+                "avg_fall_days": 0.0,
+                "max_fall_days": 0,
+                "agents_by_fall_range": {}
+            }
+
+        stats = result[0]
+        fall_days_list = stats.get("fall_days_list", [])
+
+        agents_by_fall_range = {
+            "1-2_days": sum(1 for d in fall_days_list if 1 <= d <= 2),
+            "3-5_days": sum(1 for d in fall_days_list if 3 <= d <= 5),
+            "6-10_days": sum(1 for d in fall_days_list if 6 <= d <= 10),
+            "11+_days": sum(1 for d in fall_days_list if d >= 11)
+        }
+
+        return {
+            "total_in_fall": stats.get("total_in_fall", 0),
+            "avg_fall_days": round(stats.get("avg_fall_days", 0.0), 2),
+            "max_fall_days": stats.get("max_fall_days", 0),
+            "agents_by_fall_range": agents_by_fall_range
+        }
 
     def _doc_to_entity(self, doc: dict) -> AgentState:
         """Convierte un documento de MongoDB a entidad AgentState."""
