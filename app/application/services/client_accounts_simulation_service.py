@@ -14,7 +14,7 @@ Responsabilidades:
 
 import logging
 from datetime import date, datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pymongo.database import Database
 
 from app.domain.entities.client_accounts_sync_result import (
