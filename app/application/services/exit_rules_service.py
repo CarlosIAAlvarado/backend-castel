@@ -1,6 +1,5 @@
 from typing import List, Dict, Any, Optional
 from datetime import date
-from app.domain.entities.agent_state import AgentState
 from app.domain.repositories.agent_state_repository import AgentStateRepository
 from app.domain.repositories.assignment_repository import AssignmentRepository
 from app.domain.rules.exit_rule import ExitRule
@@ -195,7 +194,7 @@ class ExitRulesService:
         assignments = self.assignment_repo.get_active_by_agent(agent_id)
         n_accounts = len(assignments)
 
-        updated_state = self.state_repo.update_state(
+        self.state_repo.update_state(
             agent_id,
             target_date,
             {"is_in_casterly": False}

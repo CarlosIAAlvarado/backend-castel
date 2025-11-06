@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import date, timedelta, datetime
 from typing import Dict, Any, List, Optional
 import uuid
@@ -9,7 +9,8 @@ from app.infrastructure.di.providers import (
     SimulationRepositoryDep,
     ClientAccountsServiceDep,
     SelectionServiceDep,
-    RotationLogRepositoryDep
+    RotationLogRepositoryDep,
+    SimulationStatusRepositoryDep
 )
 from app.config.database import database_manager
 from app.domain.entities.simulation import (
@@ -20,29 +21,53 @@ from app.domain.entities.simulation import (
     RotationsSummary,
     DailyMetric
 )
+from app.domain.entities.simulation_status import SimulationStatus
 from app.domain.entities.rotation_log import RotationLog, RotationReason
 from app.domain.entities.top16_day import Top16Day
 from app.utils.collection_names import get_roi_collection_name, get_top16_collection_name
+from app.infrastructure.config.console_logger import ConsoleLogger as log
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("trading_simulation.simulation_routes")
 
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
 
 class SimulationRequest(BaseModel):
-    target_date: date = Field(..., description="Fecha final de la simulacion (YYYY-MM-DD). El sistema simulara N dias hacia ATRAS desde esta fecha.")
-    window_days: int = Field(7, description="Ventana de dias para calcular ROI (3, 5, 7, 10, 15, 30)", ge=3, le=30)
+    start_date: date = Field(..., description="Fecha inicial de la simulacion (YYYY-MM-DD)")
+    end_date: date = Field(..., description="Fecha final de la simulacion (YYYY-MM-DD)")
     update_client_accounts: bool = Field(False, description="Si True, sincroniza cuentas de clientes durante la simulacion")
     simulation_id: Optional[str] = Field(None, description="ID de la simulacion (se genera automaticamente si no se proporciona)")
+    simulation_name: Optional[str] = Field(None, description="Nombre descriptivo de la simulacion")
     dry_run: bool = Field(False, description="Si True, simula sin guardar cambios en client accounts")
+
+    @validator('end_date')
+    def validate_date_range(cls, end_date, values):
+        """Valida que el rango sea de minimo 30 dias."""
+        if 'start_date' not in values:
+            raise ValueError("start_date es requerido")
+
+        start = values['start_date']
+        diff_days = (end_date - start).days + 1
+
+        if diff_days < 30:
+            raise ValueError(
+                f"El rango debe ser de minimo 30 dias. "
+                f"Rango actual: {diff_days} dias"
+            )
+
+        if end_date < start:
+            raise ValueError("end_date debe ser posterior a start_date")
+
+        return end_date
 
     class Config:
         json_schema_extra = {
             "example": {
-                "target_date": "2025-10-07",
-                "window_days": 7,
+                "start_date": "2025-09-01",
+                "end_date": "2025-10-01",
                 "update_client_accounts": True,
-                "simulation_id": "sim_7d_2025-10-07",
+                "simulation_id": "sim_30d_2025-09-01_to_2025-10-01",
+                "simulation_name": "Simulacion Septiembre 2025",
                 "dry_run": False
             }
         }
@@ -88,10 +113,69 @@ async def get_last_simulation_config() -> Dict[str, Any]:
         }
 
 
+@router.get("/executed-dates")
+async def get_executed_simulation_dates(
+    simulation_repo: SimulationRepositoryDep
+) -> Dict[str, Any]:
+    """
+    Obtiene el rango de fechas donde se ejecutaron simulaciones.
+    Este endpoint es para el Dashboard, que solo debe mostrar fechas de simulaciones ejecutadas.
+
+    Retorna:
+    - min_date: Fecha inicial de la simulación más antigua ejecutada
+    - max_date: Fecha final de la simulación más reciente ejecutada
+    - total_simulations: Total de simulaciones ejecutadas
+    """
+    try:
+        simulations = simulation_repo.get_all()
+
+        if not simulations:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontraron simulaciones ejecutadas. Por favor ejecute una simulación primero."
+            )
+
+        # Obtener fechas de todas las simulaciones
+        all_start_dates = []
+        all_end_dates = []
+
+        for sim in simulations:
+            if sim.config and sim.config.start_date and sim.config.target_date:
+                all_start_dates.append(sim.config.start_date)
+                all_end_dates.append(sim.config.target_date)
+
+        if not all_start_dates or not all_end_dates:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontraron fechas válidas en las simulaciones ejecutadas"
+            )
+
+        min_date = min(all_start_dates)
+        max_date = max(all_end_dates)
+
+        return {
+            "success": True,
+            "min_date": min_date.isoformat(),
+            "max_date": max_date.isoformat(),
+            "total_simulations": len(simulations),
+            "total_days": (max_date - min_date).days + 1
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al obtener fechas de simulaciones ejecutadas: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener fechas de simulaciones ejecutadas: {str(e)}"
+        )
+
+
 @router.get("/available-dates")
 async def get_available_dates() -> Dict[str, Any]:
     """
     Obtiene el rango de fechas disponibles para ejecutar simulaciones.
+    Este endpoint es para la Configuración de Simulación, muestra todas las fechas con datos disponibles.
 
     Retorna:
     - min_date: Fecha minima disponible (primera fecha en balances)
@@ -181,6 +265,497 @@ async def get_available_dates() -> Dict[str, Any]:
         )
 
 
+# ============================================================================
+# FUNCIONES AUXILIARES PARA REDUCIR COMPLEJIDAD DE run_simulation
+# ============================================================================
+
+def _validate_date_ranges(request: SimulationRequest, db) -> tuple[date, date, date, int]:
+    """
+    Valida rangos de fechas y retorna start_date, end_date, max_date, total_days.
+
+    Raises:
+        HTTPException: Si las fechas no son válidas o no hay datos suficientes
+    """
+    balances_collection = db.balances
+    min_balance = balances_collection.find_one(
+        projection={"createdAt": 1, "_id": 0},
+        sort=[("createdAt", 1)]
+    )
+    max_balance = balances_collection.find_one(
+        projection={"createdAt": 1, "_id": 0},
+        sort=[("createdAt", -1)]
+    )
+
+    movements_collection = db["mov07.10"]
+    min_movement = movements_collection.find_one(
+        projection={"createdAt": 1, "_id": 0},
+        sort=[("createdAt", 1)]
+    )
+    max_movement = movements_collection.find_one(
+        projection={"createdAt": 1, "_id": 0},
+        sort=[("createdAt", -1)]
+    )
+
+    if not min_balance or not max_balance or not min_movement or not max_movement:
+        raise HTTPException(
+            status_code=404,
+            detail="No se encontraron datos suficientes en las colecciones"
+        )
+
+    max_date_balance = date.fromisoformat(str(max_balance["createdAt"])[:10])
+    min_date_movement = date.fromisoformat(str(min_movement["createdAt"])[:10])
+    max_date_movement = date.fromisoformat(str(max_movement["createdAt"])[:10])
+    max_date = min(max_date_balance, max_date_movement)
+
+    start_date = request.start_date
+    end_date = request.end_date
+
+    if end_date > max_date:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La fecha final no puede ser mayor a {max_date.isoformat()}"
+        )
+
+    if start_date < min_date_movement:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No hay suficientes datos historicos. "
+                   f"La fecha inicial debe ser >= {min_date_movement.isoformat()}"
+        )
+
+    total_days = (end_date - start_date).days + 1
+
+    logger.info(f"=== INICIANDO SIMULACION DE {total_days} DIAS ===")
+    logger.info(f"Fecha inicial: {start_date}")
+    logger.info(f"Fecha final: {end_date}")
+    logger.info(f"Total días a procesar: {total_days}")
+    logger.info("======================================")
+
+    return start_date, end_date, max_date, total_days
+
+
+def _clean_collections(db, request: SimulationRequest) -> List[Dict[str, Any]]:
+    """
+    Limpia TODAS las colecciones antes de ejecutar una nueva simulación.
+
+    Esto previene data duplicada o data basura de simulaciones anteriores.
+    Se limpian todas las colecciones relacionadas con:
+    - Estados de agentes y asignaciones
+    - ROI y métricas por ventana
+    - Top16 por ventana
+    - Logs de rotaciones y cambios de ranking
+    - Cuentas de clientes y sus historiales
+    - Metadatos de simulaciones
+    """
+    collections_to_clean = [
+        # Estados y asignaciones
+        "agent_states",
+        "assignments",
+        "rotation_log",
+        "daily_roi_calculation",
+
+        # Cuentas de clientes y sus historiales
+        "cuentas_clientes_trading",
+        "historial_asignaciones_clientes",
+        "snapshots_clientes",
+        "rebalanceo_log",
+
+        # Colecciones de ROI por ventana (3d, 5d, 7d, 10d, 15d, 30d)
+        "agent_roi_3d",
+        "agent_roi_5d",
+        "agent_roi_7d",
+        "agent_roi_10d",
+        "agent_roi_15d",
+        "agent_roi_30d",
+
+        # Colecciones de Top16 por ventana (3d, 5d, 7d, 10d, 15d, 30d)
+        "top16_3d",
+        "top16_5d",
+        "top16_7d",
+        "top16_10d",
+        "top16_15d",
+        "top16_30d",
+
+        # Cambios de ranking
+        "rank_changes",
+
+        # Metadatos de simulaciones
+        "simulations"
+    ]
+
+    cleaned_collections = []
+    total_deleted = 0
+
+    for collection_name in collections_to_clean:
+        try:
+            result = db[collection_name].delete_many({})
+            deleted_count = result.deleted_count
+            total_deleted += deleted_count
+            cleaned_collections.append({
+                "collection": collection_name,
+                "deleted_count": deleted_count
+            })
+            logger.info(f"✓ Limpiada colección '{collection_name}': {deleted_count} documentos eliminados")
+        except Exception as e:
+            logger.warning(f"⚠ Error al limpiar colección '{collection_name}': {str(e)}")
+            cleaned_collections.append({
+                "collection": collection_name,
+                "deleted_count": 0,
+                "error": str(e)
+            })
+
+    total_days = (request.end_date - request.start_date).days + 1
+    logger.info(f"=" * 80)
+    logger.info(f"LIMPIEZA COMPLETA: {len(collections_to_clean)} colecciones procesadas")
+    logger.info(f"Total de documentos eliminados: {total_deleted}")
+    logger.info(f"Simulación configurada para {total_days} días")
+    logger.info(f"=" * 80)
+
+    return cleaned_collections
+
+
+def _create_empty_accounts(db, request: SimulationRequest) -> None:
+    """Crea 1000 cuentas de clientes vacías (sin agentes asignados)."""
+    if not request.update_client_accounts or request.dry_run:
+        return
+
+    try:
+        logger.info("Creando 1000 cuentas de clientes (sin agentes asignados)...")
+        from datetime import datetime
+
+        cuentas_vacias = []
+        fecha_temporal = datetime.utcnow()
+        for i in range(1, 1001):
+            cuenta = {
+                "cuenta_id": f"CL{i:04d}",
+                "nombre_cliente": f"Cliente {i:04d}",
+                "balance_inicial": 1000.0,
+                "balance_actual": 1000.0,
+                "roi_total": 0.0,
+                "win_rate": 0.0,
+                "agente_actual": "PENDING",
+                "fecha_asignacion_agente": fecha_temporal,
+                "roi_agente_al_asignar": 0.0,
+                "roi_acumulado_con_agente": 0.0,
+                "roi_historico_anterior": 0.0,
+                "numero_cambios_agente": 0,
+                "estado": "activo",
+                "created_at": fecha_temporal,
+                "updated_at": fecha_temporal
+            }
+            cuentas_vacias.append(cuenta)
+
+        db["cuentas_clientes_trading"].insert_many(cuentas_vacias)
+        logger.info("Cuentas creadas: 1000 cuentas sin agentes asignados")
+        logger.info("Las cuentas seran redistribuidas automaticamente al Top16 en el primer dia de simulacion")
+    except Exception as e:
+        logger.error(f"Error al crear cuentas: {str(e)}", exc_info=True)
+
+
+async def _process_simulation_days(
+    orchestrator_service,
+    selection_service,
+    rotation_log_repo,
+    status_repo,
+    db,
+    request: SimulationRequest,
+    date_range: List[date],
+    window_days: int
+) -> tuple[List[Dict[str, Any]], int]:
+    """
+    Procesa todos los días de la simulación y detecta rotaciones.
+
+    Args:
+        window_days: Ventana de días usada para cálculo de ROI (igual al total de días del rango)
+        status_repo: Repositorio para actualizar el estado de la simulación
+
+    Returns:
+        Tupla con (all_results, total_rotations_detected)
+    """
+    log.separator("=", 80)
+    log.info(f"Procesando {len(date_range)} días: {date_range[0]} -> {date_range[-1]}", context="[LOOP DIAS]")
+    log.separator("=", 80)
+    logger.info(f"Procesando {len(date_range)} días secuencialmente: {date_range[0]} -> {date_range[-1]}")
+
+    all_results = []
+    previous_top16 = None
+    total_rotations_detected = 0
+
+    for idx, current_date in enumerate(date_range, 1):
+        logger.info(f"Día {idx}/{len(date_range)} - Procesando: {current_date}")
+        logger.info(f"[{idx}/{len(date_range)}] Procesando fecha: {current_date}")
+
+        status_repo.update_progress(
+            current_day=idx,
+            message=f"Procesando día {idx}/{len(date_range)}: {current_date}"
+        )
+
+        total_days = len(date_range)
+        simulation_id_to_use = request.simulation_id or f"sim_{total_days}d_{request.start_date.isoformat()}_to_{request.end_date.isoformat()}"
+
+        day_result = await orchestrator_service.process_single_date(
+            target_date=current_date,
+            skip_cache_clear=True,
+            window_days=window_days,
+            update_client_accounts=request.update_client_accounts,
+            simulation_id=simulation_id_to_use,
+            dry_run=request.dry_run
+        )
+
+        top16_collection_name = get_top16_collection_name(window_days)
+        top16_collection = db[top16_collection_name]
+        top16_docs = list(top16_collection.find({"date": current_date.isoformat()}).sort("rank", 1))
+        roi_field = f"roi_{window_days}d"
+        current_top16 = [
+            Top16Day(
+                date=doc["date"],
+                rank=doc["rank"],
+                agent_id=doc["agent_id"],
+                roi_7d=doc.get(roi_field, 0.0),
+                total_aum=doc["total_aum"],
+                n_accounts=doc["n_accounts"],
+                is_in_casterly=doc.get("is_in_casterly", False)
+            )
+            for doc in top16_docs
+        ]
+
+        logger.debug(f"previous_top16: {'Existe' if previous_top16 else 'None'} (len={len(previous_top16) if previous_top16 else 0})")
+        logger.debug(f"current_top16: {'Existe' if current_top16 else 'None'} (len={len(current_top16) if current_top16 else 0})")
+
+        rotations = []
+        rank_changes = []
+        if previous_top16 is not None and len(previous_top16) > 0:
+            logger.info(f"Detectando rotaciones para fecha {current_date}")
+            logger.debug(f"Previous Top16: {len(previous_top16)} agentes")
+            logger.debug(f"Current Top16: {len(current_top16)} agentes")
+
+            rotations = selection_service.detect_rotations(
+                previous_top16=previous_top16,
+                current_top16=current_top16,
+                current_date=current_date
+            )
+
+            logger.info(f"Rotaciones detectadas: {len(rotations)}")
+            if len(rotations) > 0:
+                for rot in rotations:
+                    logger.debug(f"  - {rot.get('agent_out')} OUT -> {rot.get('agent_in')} IN (Razón: {rot.get('reason')})")
+            else:
+                prev_agents = {a.agent_id for a in previous_top16}
+                curr_agents = {a.agent_id for a in current_top16}
+                logger.info(f"[ROTATIONS] No se detectaron cambios. Agentes anteriores == Agentes actuales: {prev_agents == curr_agents}")
+                if prev_agents != curr_agents:
+                    logger.warning("[ROTATIONS] ATENCIÓN: Los agentes son diferentes pero no se detectaron rotaciones!")
+                    logger.warning(f"[ROTATIONS]   Solo en anterior: {prev_agents - curr_agents}")
+                    logger.warning(f"[ROTATIONS]   Solo en actual: {curr_agents - prev_agents}")
+
+            if rotations:
+                for rotation_data in rotations:
+                    try:
+                        agent_out = rotation_data.get("agent_out")
+                        agent_in = rotation_data.get("agent_in")
+
+                        if not agent_out or not agent_in:
+                            logger.warning(
+                                f"[ROTATION_SKIP] Rotación inválida omitida: "
+                                f"agent_out={agent_out}, agent_in={agent_in}. "
+                                f"Se requiere AMBOS agentes para registrar una rotación."
+                            )
+                            continue
+
+                        rotation_entity = RotationLog(
+                            date=rotation_data["date"],
+                            agent_out=agent_out,
+                            agent_in=agent_in,
+                            reason=rotation_data.get("reason", RotationReason.DAILY_ROTATION),
+                            reason_details=rotation_data.get("reason_details"),
+                            roi_7d_out=rotation_data.get("roi_7d_out", 0.0),
+                            roi_total_out=0.0,
+                            roi_7d_in=rotation_data.get("roi_7d_in", 0.0),
+                            n_accounts=rotation_data.get("n_accounts", 0),
+                            total_aum=rotation_data.get("total_aum", 0.0)
+                        )
+                        rotation_log_repo.create(rotation_entity)
+                        total_rotations_detected += 1
+                    except Exception as e:
+                        logger.error(f"Error al guardar rotación: {str(e)}")
+
+            rank_changes = selection_service.detect_rank_changes(
+                previous_top16=previous_top16,
+                current_top16=current_top16,
+                current_date=current_date
+            )
+
+            if rank_changes:
+                from app.domain.entities.rank_change import RankChange
+                from app.infrastructure.repositories.rank_change_repository_impl import RankChangeRepositoryImpl
+                rank_change_repo = RankChangeRepositoryImpl()
+
+                for rank_change_data in rank_changes:
+                    try:
+                        rank_change_entity = RankChange(
+                            date=rank_change_data["date"],
+                            agent_id=rank_change_data["agent_id"],
+                            previous_rank=rank_change_data["previous_rank"],
+                            current_rank=rank_change_data["current_rank"],
+                            rank_change=rank_change_data["rank_change"],
+                            previous_roi=rank_change_data["previous_roi"],
+                            current_roi=rank_change_data["current_roi"],
+                            roi_change=rank_change_data["roi_change"],
+                            is_in_casterly=rank_change_data["is_in_casterly"]
+                        )
+                        rank_change_repo.create(rank_change_entity)
+                    except Exception as e:
+                        logger.error(f"Error al guardar cambio de ranking: {str(e)}")
+
+        all_results.append({
+            "date": current_date.isoformat(),
+            "rotations_detected": len(rotations),
+            "rank_changes_detected": len(rank_changes),
+            "result": day_result
+        })
+
+        previous_top16 = current_top16
+
+        logger.info(
+            f"[{idx}/{len(date_range)}] Completado: {current_date} "
+            f"({len(rotations)} rotaciones, {len(rank_changes)} cambios de ranking)"
+        )
+
+    total_rank_changes = sum(r.get("rank_changes_detected", 0) for r in all_results)
+    logger.info(
+        f"Total detectado en todo el período: "
+        f"{total_rotations_detected} rotaciones, {total_rank_changes} cambios de ranking"
+    )
+
+    return all_results, total_rotations_detected
+
+
+async def _save_simulation_summary(
+    simulation_repo,
+    db,
+    request: SimulationRequest,
+    start_date: date,
+    end_date: date,
+    top16_agent_ids: List[str],
+    window_days: int
+) -> Optional[str]:
+    """
+    Guarda el resumen de la simulación.
+
+    Returns:
+        simulation_id si se guardó exitosamente, None si no
+    """
+    simulation_id = None
+    try:
+        from datetime import datetime
+        simulation_id = str(uuid.uuid4())
+
+        total_simulations = simulation_repo.count()
+        if total_simulations >= 50:
+            logger.warning("Limite de 50 simulaciones alcanzado. No se guardara esta simulacion.")
+            return None
+
+        total_days = (end_date - start_date).days + 1
+        simulation_name = request.simulation_name or f"Simulacion {total_days}D {start_date.isoformat()} a {end_date.isoformat()}"
+
+        top16_data = _get_top16_final(db, end_date, window_days)
+        summary_data = await _get_summary_kpis(db, end_date, top16_agent_ids, window_days)
+        rotations_data = _get_rotations_summary(db, start_date, end_date)
+        daily_metrics_data = _calculate_daily_metrics(db, start_date, end_date, top16_agent_ids, window_days)
+
+        simulation = Simulation(
+            simulation_id=simulation_id,
+            name=simulation_name,
+            description=None,
+            created_at=datetime.now(),
+            config=SimulationConfig(
+                target_date=end_date,
+                start_date=start_date,
+                days_simulated=total_days,
+                fall_threshold=3,
+                stop_loss_threshold=-0.10
+            ),
+            kpis=summary_data,
+            top_16_final=top16_data,
+            rotations_summary=rotations_data,
+            daily_metrics=daily_metrics_data
+        )
+
+        simulation_repo.create(simulation)
+        logger.info(f"Resumen de simulacion guardado con ID: {simulation_id}")
+        return simulation_id
+    except Exception as e:
+        logger.error(f"Error al guardar resumen de simulacion: {str(e)}", exc_info=True)
+        return None
+
+
+def _save_system_config(db, request: SimulationRequest, start_date: date, end_date: date, window_days: int) -> None:
+    """Guarda la configuración de la última simulación."""
+    try:
+        from datetime import datetime
+        total_days = (end_date - start_date).days + 1
+        system_config_col = db["system_config"]
+        system_config_col.update_one(
+            {"config_key": "last_simulation"},
+            {
+                "$set": {
+                    "config_key": "last_simulation",
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "total_days": total_days,
+                    "window_days": window_days,
+                    "updated_at": datetime.now().isoformat()
+                }
+            },
+            upsert=True
+        )
+        logger.info(f"Configuración de última simulación guardada: {total_days} dias, window_days: {window_days}")
+    except Exception as e:
+        logger.error(f"Error al guardar configuración de última simulación: {str(e)}")
+
+
+def _save_client_accounts_snapshot(
+    client_accounts_service,
+    request: SimulationRequest,
+    start_date: date,
+    end_date: date,
+    all_results: List[Dict[str, Any]],
+    window_days: int,
+    redistribution_result: Optional[Dict],
+    roi_update_result: Optional[Dict]
+) -> Optional[Dict[str, Any]]:
+    """Guarda snapshot de Client Accounts simulation."""
+    if not request.update_client_accounts or request.dry_run:
+        return None
+
+    try:
+        logger.info("Guardando snapshot de Client Accounts simulation...")
+        total_days = (end_date - start_date).days + 1
+        simulation_id_to_use = request.simulation_id or f"sim_{total_days}d_{start_date.isoformat()}_to_{end_date.isoformat()}"
+
+        metadata = {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "total_days": total_days,
+            "total_days_processed": len(all_results),
+            "redistribution": redistribution_result,
+            "roi_update": roi_update_result
+        }
+
+        snapshot_result = client_accounts_service.save_simulation_snapshot(
+            simulation_id=simulation_id_to_use,
+            simulation_date=end_date,
+            window_days=window_days,
+            metadata=metadata
+        )
+
+        logger.info(f"Snapshot de Client Accounts guardado: {snapshot_result['snapshot_id']}")
+        return snapshot_result
+    except Exception as e:
+        logger.error(f"Error al guardar snapshot de Client Accounts: {str(e)}", exc_info=True)
+        return None
+
+
 @router.post("/run")
 async def run_simulation(
     request: SimulationRequest,
@@ -188,478 +763,104 @@ async def run_simulation(
     simulation_repo: SimulationRepositoryDep,
     client_accounts_service: ClientAccountsServiceDep,
     selection_service: SelectionServiceDep,
-    rotation_log_repo: RotationLogRepositoryDep
+    rotation_log_repo: RotationLogRepositoryDep,
+    status_repo: SimulationStatusRepositoryDep
 ) -> Dict[str, Any]:
-    print("\n" + "="*80)
-    print(f"[SIMULACION INICIADA] window_days={request.window_days}, target_date={request.target_date}")
-    print("="*80 + "\n")
-    logger.info(f"[SIMULACION] Recibida solicitud: window_days={request.window_days}, target_date={request.target_date}")
+    """
+    Ejecuta una simulación de trading para un rango de fechas (mínimo 30 días).
+
+    El sistema procesa todos los días del rango y guarda los datos completos.
+    Los KPIs se pueden calcular posteriormente para diferentes ventanas mediante filtros.
+    """
+    log.separator("=", 80)
+    log.success(f"Simulación iniciada - start_date={request.start_date}, end_date={request.end_date}", context="[SIMULATION]")
+    log.separator("=", 80)
+    logger.info(f"Recibida solicitud de simulación: start_date={request.start_date}, end_date={request.end_date}")
 
     try:
         db = database_manager.get_database()
 
-        # OPTIMIZACION: Solo traer el campo createdAt (no documentos completos)
-        balances_collection = db.balances
-        min_balance = balances_collection.find_one(
-            projection={"createdAt": 1, "_id": 0},
-            sort=[("createdAt", 1)]
-        )
-        max_balance = balances_collection.find_one(
-            projection={"createdAt": 1, "_id": 0},
-            sort=[("createdAt", -1)]
-        )
+        # 1. Validar rangos de fechas
+        start_date, end_date, max_date, total_days = _validate_date_ranges(request, db)
 
-        movements_collection = db["mov07.10"]
-        min_movement = movements_collection.find_one(
-            projection={"createdAt": 1, "_id": 0},
-            sort=[("createdAt", 1)]
-        )
-        max_movement = movements_collection.find_one(
-            projection={"createdAt": 1, "_id": 0},
-            sort=[("createdAt", -1)]
-        )
+        # 2. Limpiar colecciones temporales
+        cleaned_collections = _clean_collections(db, request)
 
-        if not min_balance or not max_balance or not min_movement or not max_movement:
-            raise HTTPException(
-                status_code=404,
-                detail="No se encontraron datos suficientes en las colecciones"
-            )
+        # 3. Crear cuentas vacías si es necesario
+        _create_empty_accounts(db, request)
 
-        # Convertir createdAt a date
-        min_date_balance = date.fromisoformat(str(min_balance["createdAt"])[:10])
-        max_date_balance = date.fromisoformat(str(max_balance["createdAt"])[:10])
-        min_date_movement = date.fromisoformat(str(min_movement["createdAt"])[:10])
-        max_date_movement = date.fromisoformat(str(max_movement["createdAt"])[:10])
-
-        # Validar que target_date este en el rango disponible
-        min_date = min_date_balance
-        max_date = min(max_date_balance, max_date_movement)
-
-        if request.target_date > max_date:
-            raise HTTPException(
-                status_code=400,
-                detail=f"La fecha objetivo no puede ser mayor a {max_date.isoformat()}"
-            )
-
-        # NUEVA LOGICA: Calcular ROI con ventana dinámica para UNA SOLA FECHA
-        # Si target_date = 07/10 y window_days = 15, entonces:
-        # - Ventana ROI: 23/09 a 07/10 (15 días)
-        # - NO se simula múltiples días
-        target_date = request.target_date
-        window_start = target_date - timedelta(days=request.window_days - 1)  # window_days incluye target_date
-
-        # Validar que haya datos suficientes para la ventana ROI
-        if window_start < min_date_movement:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No hay suficientes datos historicos. Para calcular ROI_{request.window_days}D hasta {target_date.isoformat()}, "
-                       f"se necesitan datos desde {window_start.isoformat()}, pero solo hay datos desde {min_date_movement.isoformat()}. "
-                       f"Selecciona una fecha >= {(min_date_movement + timedelta(days=request.window_days)).isoformat()}"
-            )
-
-        # Log para debugging
-        logger.info(f"=== INICIANDO SIMULACION ROI_{request.window_days}D ===")
-        logger.info(f"target_date seleccionado: {target_date}")
-        logger.info(f"Ventana ROI: {window_start} -> {target_date}")
-        logger.info(f"Total días en ventana: {request.window_days}")
-        logger.info(f"Colección ROI: {get_roi_collection_name(request.window_days)}")
-        logger.info(f"Colección Top16: {get_top16_collection_name(request.window_days)}")
-        logger.info(f"======================================")
-
-        # LIMPIAR COLECCIONES TEMPORALES ANTES DE CALCULAR
-        # Preservar: balances, mov07.10 (datos historicos reales)
-        # Usar nombres dinámicos basados en window_days
-        roi_collection_name = get_roi_collection_name(request.window_days)
-        top16_collection_name = get_top16_collection_name(request.window_days)
-
-        collections_to_clean = [
-            "agent_states",
-            "assignments",
-            "rotation_log",
-            top16_collection_name,  # Dinámico: top16_7d, top16_30d, etc.
-            "daily_roi_calculation",
-            roi_collection_name,  # Dinámico: agent_roi_7d, agent_roi_30d, etc.
-            # Limpiar tablas de Client Accounts para nueva simulación
-            "cuentas_clientes_trading",
-            "historial_asignaciones_clientes",
-            "snapshots_clientes",
-            "rebalanceo_log"
-        ]
-
-        cleaned_collections = []
-        for collection_name in collections_to_clean:
-            result = db[collection_name].delete_many({})
-            cleaned_collections.append({
-                "collection": collection_name,
-                "deleted_count": result.deleted_count
-            })
-
-        logger.info(f"Colecciones limpiadas (window={request.window_days}d): {cleaned_collections}")
-
-        # ===================================================================
-        # CREAR CUENTAS VACIAS (si update_client_accounts=True)
-        # ===================================================================
-        # NOTA: Solo creamos las cuentas SIN agentes asignados ni historial.
-        # La redistribucion automatica al Top16 se hara en el primer dia
-        # cuando se ejecute sync_with_simulation_day()
-        if request.update_client_accounts and not request.dry_run:
-            try:
-                logger.info("Creando 1000 cuentas de clientes (sin agentes asignados)...")
-                from datetime import datetime
-
-                # Crear 1000 cuentas vacías con valores temporales
-                # NOTA: Usamos valores temporales (PENDING) porque el schema de MongoDB
-                # requiere que estos campos existan. Se sobrescribiran en el primer dia.
-                cuentas_vacias = []
-                fecha_temporal = datetime.utcnow()
-                for i in range(1, 1001):
-                    cuenta = {
-                        "cuenta_id": f"CL{i:04d}",
-                        "nombre_cliente": f"Cliente {i:04d}",
-                        "balance_inicial": 1000.0,
-                        "balance_actual": 1000.0,
-                        "roi_total": 0.0,
-                        "win_rate": 0.0,
-                        # Valores temporales que se sobrescribiran en el primer dia
-                        "agente_actual": "PENDING",
-                        "fecha_asignacion_agente": fecha_temporal,
-                        "roi_agente_al_asignar": 0.0,
-                        "roi_acumulado_con_agente": 0.0,
-                        "roi_historico_anterior": 0.0,
-                        "numero_cambios_agente": 0,
-                        "estado": "activo",
-                        "created_at": fecha_temporal,
-                        "updated_at": fecha_temporal
-                    }
-                    cuentas_vacias.append(cuenta)
-
-                # Insertar todas las cuentas
-                db["cuentas_clientes_trading"].insert_many(cuentas_vacias)
-                logger.info(f"Cuentas creadas: 1000 cuentas sin agentes asignados")
-                logger.info("Las cuentas seran redistribuidas automaticamente al Top16 en el primer dia de simulacion")
-            except Exception as e:
-                logger.error(f"Error al crear cuentas: {str(e)}", exc_info=True)
-
-        # ===================================================================
-        # OPTIMIZACION: Ejecutar día por día SIN limpiar cache repetidamente
-        # ===================================================================
-        # Generar todas las fechas desde window_start hasta target_date
+        # 4. Generar rango de fechas a procesar
         date_range = []
-        current = window_start
-        while current <= target_date:
+        current = start_date
+        while current <= end_date:
             date_range.append(current)
             current += timedelta(days=1)
 
-        print(f"\n{'='*80}")
-        print(f"[LOOP DIAS] Procesando {len(date_range)} días: {date_range[0]} -> {date_range[-1]}")
-        print(f"{'='*80}\n")
-        logger.info(f"Procesando {len(date_range)} días secuencialmente: {date_range[0]} -> {date_range[-1]}")
+        # 4.5. Crear estado inicial de simulación
+        initial_status = SimulationStatus(
+            is_running=True,
+            current_day=0,
+            total_days=total_days,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            started_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            estimated_seconds_per_day=22,
+            message="Iniciando simulación..."
+        )
+        status_repo.upsert(initial_status)
+        logger.info("Estado inicial de simulación guardado")
 
-        all_results = []
-        previous_top16 = None  # Para detectar rotaciones
-        total_rotations_detected = 0
-
-        for idx, current_date in enumerate(date_range, 1):
-            print(f"[DIA {idx}/{len(date_range)}] Procesando: {current_date}")
-            logger.info(f"[{idx}/{len(date_range)}] Procesando fecha: {current_date}")
-
-            # OPTIMIZACION: skip_cache_clear=True para no limpiar cache en cada iteracion
-            # El cache ya se limpio arriba en collections_to_clean
-            # NUEVO: Agregar parametros de Client Accounts
-            simulation_id_to_use = request.simulation_id or f"sim_{request.window_days}d_{request.target_date.isoformat()}"
-
-            day_result = await orchestrator_service.process_single_date(
-                target_date=current_date,
-                skip_cache_clear=True,
-                window_days=request.window_days,
-                update_client_accounts=request.update_client_accounts,
-                simulation_id=simulation_id_to_use,
-                dry_run=request.dry_run
-            )
-
-            # Obtener Top 16 del día actual desde la colección dinámica correcta
-            top16_collection_name = get_top16_collection_name(request.window_days)
-            top16_collection = db[top16_collection_name]
-
-            top16_docs = list(top16_collection.find({"date": current_date.isoformat()}).sort("rank", 1))
-            roi_field = f"roi_{request.window_days}d"
-            current_top16 = [
-                Top16Day(
-                    date=doc["date"],
-                    rank=doc["rank"],
-                    agent_id=doc["agent_id"],
-                    roi_7d=doc.get(roi_field, 0.0),
-                    total_aum=doc["total_aum"],
-                    n_accounts=doc["n_accounts"],
-                    is_in_casterly=doc.get("is_in_casterly", False)
-                )
-                for doc in top16_docs
-            ]
-
-            print(f"  [DEBUG] previous_top16: {'Existe' if previous_top16 else 'None'} (len={len(previous_top16) if previous_top16 else 0})")
-            print(f"  [DEBUG] current_top16: {'Existe' if current_top16 else 'None'} (len={len(current_top16) if current_top16 else 0})")
-
-            # Detectar rotaciones si hay un día anterior
-            rotations = []
-            rank_changes = []
-            if previous_top16 is not None and len(previous_top16) > 0:
-                print(f"  [ROTATIONS] Detectando rotaciones para fecha {current_date}")
-                print(f"  [ROTATIONS] Previous Top16: {len(previous_top16)} agentes")
-                print(f"  [ROTATIONS] Current Top16: {len(current_top16)} agentes")
-
-                # Detectar rotaciones (entradas/salidas del Top 16)
-                rotations = selection_service.detect_rotations(
-                    previous_top16=previous_top16,
-                    current_top16=current_top16,
-                    current_date=current_date
-                )
-
-                print(f"  [ROTATIONS] Rotaciones detectadas: {len(rotations)}")
-                if len(rotations) > 0:
-                    for rot in rotations:
-                        print(f"    - {rot.get('agent_out')} OUT -> {rot.get('agent_in')} IN (Razón: {rot.get('reason')})")
-                else:
-                    # Log para debugging: mostrar agentes de ambos días
-                    prev_agents = set([a.agent_id for a in previous_top16])
-                    curr_agents = set([a.agent_id for a in current_top16])
-                    logger.info(f"[ROTATIONS] No se detectaron cambios. Agentes anteriores == Agentes actuales: {prev_agents == curr_agents}")
-                    if prev_agents != curr_agents:
-                        logger.warning(f"[ROTATIONS] ATENCIÓN: Los agentes son diferentes pero no se detectaron rotaciones!")
-                        logger.warning(f"[ROTATIONS]   Solo en anterior: {prev_agents - curr_agents}")
-                        logger.warning(f"[ROTATIONS]   Solo en actual: {curr_agents - prev_agents}")
-
-                # Guardar rotaciones en rotation_log
-                if rotations:
-                    for rotation_data in rotations:
-                        try:
-                            rotation_entity = RotationLog(
-                                date=rotation_data["date"],
-                                agent_out=rotation_data["agent_out"],
-                                agent_in=rotation_data["agent_in"],
-                                reason=rotation_data.get("reason", RotationReason.DAILY_ROTATION),
-                                reason_details=rotation_data.get("reason_details"),
-                                roi_7d_out=rotation_data.get("roi_7d_out", 0.0),
-                                roi_total_out=0.0,
-                                roi_7d_in=rotation_data.get("roi_7d_in", 0.0),
-                                n_accounts=rotation_data.get("n_accounts", 0),
-                                total_aum=rotation_data.get("total_aum", 0.0)
-                            )
-                            rotation_log_repo.create(rotation_entity)
-                            total_rotations_detected += 1
-                        except Exception as e:
-                            logger.error(f"Error al guardar rotación: {str(e)}")
-
-                # Detectar cambios de ranking (movimientos internos dentro del Top 16)
-                rank_changes = selection_service.detect_rank_changes(
-                    previous_top16=previous_top16,
-                    current_top16=current_top16,
-                    current_date=current_date
-                )
-
-                # Guardar rank changes en rank_changes collection
-                if rank_changes:
-                    from app.domain.entities.rank_change import RankChange
-                    from app.infrastructure.repositories.rank_change_repository_impl import RankChangeRepositoryImpl
-                    rank_change_repo = RankChangeRepositoryImpl()
-
-                    for rank_change_data in rank_changes:
-                        try:
-                            rank_change_entity = RankChange(
-                                date=rank_change_data["date"],
-                                agent_id=rank_change_data["agent_id"],
-                                previous_rank=rank_change_data["previous_rank"],
-                                current_rank=rank_change_data["current_rank"],
-                                rank_change=rank_change_data["rank_change"],
-                                previous_roi=rank_change_data["previous_roi"],
-                                current_roi=rank_change_data["current_roi"],
-                                roi_change=rank_change_data["roi_change"],
-                                is_in_casterly=rank_change_data["is_in_casterly"]
-                            )
-                            rank_change_repo.create(rank_change_entity)
-                        except Exception as e:
-                            logger.error(f"Error al guardar cambio de ranking: {str(e)}")
-
-            all_results.append({
-                "date": current_date.isoformat(),
-                "rotations_detected": len(rotations),
-                "rank_changes_detected": len(rank_changes),
-                "result": day_result
-            })
-
-            # Actualizar previous_top16 para el siguiente día
-            previous_top16 = current_top16
-
-            logger.info(
-                f"[{idx}/{len(date_range)}] Completado: {current_date} "
-                f"({len(rotations)} rotaciones, {len(rank_changes)} cambios de ranking)"
-            )
-
-        # Usar el resultado del último día como resultado principal
-        result = all_results[-1]["result"] if all_results else {}
-
-        # Calcular total de rank changes
-        total_rank_changes = sum(r.get("rank_changes_detected", 0) for r in all_results)
-
-        logger.info(
-            f"Total detectado en todo el período: "
-            f"{total_rotations_detected} rotaciones, {total_rank_changes} cambios de ranking"
+        # 5. Procesar todos los días de la simulación
+        # Usar total_days como window_days para capturar todos los datos
+        all_results, total_rotations_detected = await _process_simulation_days(
+            orchestrator_service,
+            selection_service,
+            rotation_log_repo,
+            status_repo,
+            db,
+            request,
+            date_range,
+            total_days
         )
 
-        # NOTA: La inicializacion y redistribucion ahora se hace ANTES del loop de simulacion
-        # para que las cuentas esten disponibles desde el primer dia.
-        # Este codigo se mantiene comentado como respaldo pero ya no se usa.
+        # 6. Obtener resultado del último día
+        result = all_results[-1]["result"] if all_results else {}
 
-        # # VERIFICAR E INICIALIZAR CUENTAS SI ES NECESARIO
-        # try:
-        #     cuentas_count = client_accounts_service.cuentas_trading_col.count_documents({"estado": "activo"})
-        #     if cuentas_count < 1000:
-        #         cuentas_faltantes = 1000 - cuentas_count
-        #         logger.info(f"Solo hay {cuentas_count} cuentas activas. Creando {cuentas_faltantes} cuentas para completar 1000...")
-        #         init_result = client_accounts_service.initialize_client_accounts(
-        #             simulation_id="auto_init",
-        #             num_accounts=cuentas_faltantes,
-        #             num_top_agents=16
-        #         )
-        #         logger.info(f"Inicialización completada: {init_result.get('cuentas_creadas', 0)} cuentas creadas. Total: {cuentas_count + init_result.get('cuentas_creadas', 0)} cuentas")
-        # except Exception as e:
-        #     logger.warning(f"No se pudieron inicializar cuentas automáticamente: {str(e)}")
+        # 7. Guardar resumen de simulación
+        top16_agent_ids = [agent.agent_id for agent in _get_top16_final(db, end_date, total_days)]
+        simulation_id = await _save_simulation_summary(
+            simulation_repo,
+            db,
+            request,
+            start_date,
+            end_date,
+            top16_agent_ids,
+            total_days
+        )
 
-        # # REDISTRIBUIR CUENTAS AL TOP16 AUTOMATICAMENTE
-        # redistribution_result = None
-        # try:
-        #     logger.info("Redistribuyendo cuentas al Top16 automáticamente...")
-        #     redistribution_result = client_accounts_service.redistribute_accounts_to_top16(
-        #         target_date=target_date.isoformat(),
-        #         window_days=request.window_days
-        #     )
-        #     logger.info(
-        #         f"Redistribución completada: {redistribution_result.get('cuentas_reasignadas', 0)} "
-        #         f"cuentas reasignadas a {redistribution_result.get('num_agentes_top16', 0)} agentes"
-        #     )
-        # except Exception as e:
-        #     logger.error(f"Error al redistribuir cuentas: {str(e)}", exc_info=True)
-        #     # No propagamos el error - la simulacion se ejecuto correctamente
-        #     redistribution_result = {"error": str(e), "cuentas_reasignadas": 0}
+        # 8. Guardar configuración del sistema
+        _save_system_config(db, request, start_date, end_date, total_days)
 
-        # # ACTUALIZAR ROI DE CUENTAS DE CLIENTES AUTOMATICAMENTE
-        # roi_update_result = None
-        # try:
-        #     logger.info("Actualizando ROI de cuentas de clientes automáticamente...")
-        #     roi_update_result = client_accounts_service.update_client_accounts_roi(
-        #         simulation_id="auto_update",
-        #         window_days=request.window_days
-        #     )
-        #     logger.info(f"ROI actualizado: {roi_update_result.get('cuentas_actualizadas', 0)} cuentas")
-        # except Exception as e:
-        #     logger.error(f"Error al actualizar ROI de cuentas: {str(e)}", exc_info=True)
-        #     # No propagamos el error - la simulacion se ejecuto correctamente
-        #     roi_update_result = {"error": str(e), "cuentas_actualizadas": 0}
-
+        # 9. Guardar snapshot de client accounts
         redistribution_result = None
         roi_update_result = None
+        client_accounts_snapshot_info = _save_client_accounts_snapshot(
+            client_accounts_service,
+            request,
+            start_date,
+            end_date,
+            all_results,
+            total_days,
+            redistribution_result,
+            roi_update_result
+        )
 
-        # GUARDAR RESUMEN DE SIMULACION (opcional - no afecta la ejecucion)
-        simulation_id = None
-        try:
-            simulation_id = str(uuid.uuid4())
+        # 9.5. Marcar simulación como completada
+        status_repo.mark_completed()
+        logger.info("Simulación marcada como completada")
 
-            # Verificar limite de 50 simulaciones
-            total_simulations = simulation_repo.count()
-            if total_simulations >= 50:
-                logger.warning("Limite de 50 simulaciones alcanzado. No se guardara esta simulacion.")
-            else:
-                # Obtener Top 16 final primero
-                top16_data = _get_top16_final(db, target_date, request.window_days)
-
-                # Extraer IDs de los Top 16 agentes
-                top16_agent_ids = [agent.agent_id for agent in top16_data]
-
-                # Obtener KPIs calculados SOLO para los Top 16
-                summary_data = await _get_summary_kpis(db, target_date, top16_agent_ids, request.window_days)
-
-                # Obtener resumen de rotaciones
-                rotations_data = _get_rotations_summary(db, window_start, target_date)
-
-                # Calcular metricas diarias para la ventana completa
-                daily_metrics_data = _calculate_daily_metrics(db, window_start, target_date, top16_agent_ids, request.window_days)
-
-                # Crear entidad Simulation
-                simulation = Simulation(
-                    simulation_id=simulation_id,
-                    name=f"ROI_{request.window_days}D {target_date.isoformat()}",
-                    description=None,
-                    created_at=datetime.now(),
-                    config=SimulationConfig(
-                        target_date=target_date,
-                        start_date=window_start,
-                        days_simulated=request.window_days,
-                        fall_threshold=3,
-                        stop_loss_threshold=-0.10
-                    ),
-                    kpis=summary_data,
-                    top_16_final=top16_data,
-                    rotations_summary=rotations_data,
-                    daily_metrics=daily_metrics_data
-                )
-
-                # Guardar simulacion
-                saved_simulation = simulation_repo.create(simulation)
-                logger.info(f"Resumen de simulacion guardado con ID: {simulation_id}")
-        except Exception as e:
-            logger.error(f"Error al guardar resumen de simulacion: {str(e)}", exc_info=True)
-            # No propagamos el error - la simulacion se ejecuto correctamente
-            simulation_id = None  # Resetear para indicar que no se guardo
-
-        # GUARDAR CONFIGURACION DE LA ULTIMA SIMULACION
-        try:
-            system_config_col = db["system_config"]
-            system_config_col.update_one(
-                {"config_key": "last_simulation"},
-                {
-                    "$set": {
-                        "config_key": "last_simulation",
-                        "window_days": request.window_days,
-                        "target_date": target_date.isoformat(),
-                        "window_start": window_start.isoformat(),
-                        "updated_at": datetime.now().isoformat()
-                    }
-                },
-                upsert=True
-            )
-            logger.info(f"Configuración de última simulación guardada: window_days={request.window_days}")
-        except Exception as e:
-            logger.error(f"Error al guardar configuración de última simulación: {str(e)}")
-
-        # GUARDAR SNAPSHOT DE CLIENT ACCOUNTS SIMULATION
-        client_accounts_snapshot_info = None
-        if request.update_client_accounts and not request.dry_run:
-            try:
-                logger.info("Guardando snapshot de Client Accounts simulation...")
-                simulation_id_to_use = request.simulation_id or f"sim_{request.window_days}d_{request.target_date.isoformat()}"
-
-                # Calcular metadata adicional
-                metadata = {
-                    "window_days": request.window_days,
-                    "target_date": target_date.isoformat(),
-                    "window_start": window_start.isoformat(),
-                    "total_days_processed": len(all_results),
-                    "redistribution": redistribution_result,
-                    "roi_update": roi_update_result
-                }
-
-                snapshot_result = client_accounts_service.save_simulation_snapshot(
-                    simulation_id=simulation_id_to_use,
-                    simulation_date=target_date,
-                    window_days=request.window_days,
-                    metadata=metadata
-                )
-
-                client_accounts_snapshot_info = snapshot_result
-                logger.info(f"Snapshot de Client Accounts guardado: {snapshot_result['snapshot_id']}")
-            except Exception as e:
-                logger.error(f"Error al guardar snapshot de Client Accounts: {str(e)}", exc_info=True)
-                # No propagamos el error - la simulación se ejecutó correctamente
-
+        # 10. Retornar respuesta exitosa
         return {
             "success": True,
             "message": "Simulación histórica día por día completada exitosamente",
@@ -682,22 +883,64 @@ async def run_simulation(
             },
             "client_accounts_snapshot": client_accounts_snapshot_info,
             "simulation_info": {
-                "target_date": request.target_date.isoformat(),
-                "window_start": window_start.isoformat(),
-                "window_end": target_date.isoformat(),
-                "days_in_window": len(date_range),
-                "description": f"Simulación histórica día por día desde {window_start.isoformat()} hasta {target_date.isoformat()}"
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_days": total_days,
+                "days_processed": len(date_range),
+                "description": f"Simulación de {total_days} días desde {start_date.isoformat()} hasta {end_date.isoformat()}"
             },
             "data": result
         }
 
     except ValueError as e:
+        status_repo.mark_completed()
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error al ejecutar la simulacion: {str(e)}", exc_info=True)
+        status_repo.mark_completed()
         raise HTTPException(
             status_code=500,
             detail=f"Error al ejecutar la simulacion: {str(e)}"
+        )
+
+
+@router.get("/status")
+async def get_simulation_status(
+    status_repo: SimulationStatusRepositoryDep
+) -> Dict[str, Any]:
+    """
+    Obtiene el estado actual de la simulacion en curso.
+
+    Returns:
+        Estado de la simulacion o indicador de que no hay simulacion activa
+    """
+    try:
+        current_status = status_repo.get_current()
+
+        if not current_status:
+            return {
+                "is_running": False,
+                "message": "No hay simulación en curso"
+            }
+
+        return {
+            "is_running": current_status.is_running,
+            "current_day": current_status.current_day,
+            "total_days": current_status.total_days,
+            "start_date": current_status.start_date,
+            "end_date": current_status.end_date,
+            "started_at": current_status.started_at.isoformat(),
+            "updated_at": current_status.updated_at.isoformat(),
+            "estimated_seconds_per_day": current_status.estimated_seconds_per_day,
+            "message": current_status.message,
+            "progress_percentage": (current_status.current_day / current_status.total_days) * 100 if current_status.total_days > 0 else 0
+        }
+
+    except Exception as e:
+        logger.error(f"Error al obtener estado de simulacion: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener estado de simulacion: {str(e)}"
         )
 
 
@@ -870,7 +1113,7 @@ def _calculate_daily_metrics(db, start_date: date, end_date: date, top16_agent_i
     roi_collection_name = get_roi_collection_name(window_days)
     agent_roi_collection = db[roi_collection_name]
 
-    logger.info(f"[DEBUG] _calculate_daily_metrics llamado con:")
+    logger.info("[DEBUG] _calculate_daily_metrics llamado con:")
     logger.info(f"[DEBUG]   start_date: {start_date}")
     logger.info(f"[DEBUG]   end_date: {end_date}")
     logger.info(f"[DEBUG]   window_days: {window_days}")

@@ -1,7 +1,11 @@
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, TYPE_CHECKING
 from datetime import date, timedelta
 from collections import defaultdict
 import logging
+
+if TYPE_CHECKING:
+    from app.application.services.movement_query_service import MovementQueryService
+    from app.application.services.balance_query_service import BalanceQueryService
 
 logger = logging.getLogger(__name__)
 

@@ -9,11 +9,10 @@ Este servicio maneja:
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+from typing import List, Dict, Any, Optional
 from pymongo.database import Database
 from pymongo import UpdateOne, InsertOne
-from bson import ObjectId
 from app.utils.collection_names import get_top16_collection_name
 
 logger = logging.getLogger(__name__)
@@ -37,10 +36,7 @@ class ClientAccountsService:
         self.top16_col = db.top16_by_day  # Tabla de Top 16 agentes
 
     def initialize_client_accounts(
-        self,
-        simulation_id: str,
-        num_accounts: int = 1000,
-        num_top_agents: int = 16
+        self, simulation_id: str, num_accounts: int = 1000, num_top_agents: int = 16
     ) -> Dict[str, Any]:
         """
         Inicializa las cuentas de clientes para una simulacion.
@@ -58,9 +54,7 @@ class ClientAccountsService:
         Returns:
             Dict con resumen de la distribucion inicial
         """
-        logger.info(
-            f"Iniciando distribucion de {num_accounts} cuentas para simulacion {simulation_id}"
-        )
+        logger.info(f"Iniciando distribucion de {num_accounts} cuentas para simulacion {simulation_id}")
 
         existing_accounts = self.cuentas_trading_col.count_documents({})
 
@@ -70,33 +64,25 @@ class ClientAccountsService:
                 "Reseteando para nueva simulacion independiente..."
             )
             reset_result = self.reset_simulation_accounts()
-            logger.info(
-                f"Reset completado: {reset_result['cuentas_reseteadas']} cuentas reseteadas"
-            )
+            logger.info(f"Reset completado: {reset_result['cuentas_reseteadas']} cuentas reseteadas")
 
         # 1. Obtener Top N agentes ordenados por ROI
         logger.info("Paso 1: Obteniendo Top agentes...")
         top_agents = self._get_top_agents(simulation_id, num_top_agents)
         logger.info(f"Top agentes obtenidos: {len(top_agents)}")
         if len(top_agents) < num_top_agents:
-            raise ValueError(
-                f"Se requieren {num_top_agents} agentes pero solo hay {len(top_agents)} disponibles"
-            )
+            raise ValueError(f"Se requieren {num_top_agents} agentes pero solo hay {len(top_agents)} disponibles")
 
         # 2. Obtener cuentas de clientes disponibles
         logger.info(f"Paso 2: Obteniendo {num_accounts} cuentas de clientes...")
         client_accounts = self._get_client_accounts(num_accounts)
         logger.info(f"Cuentas de clientes obtenidas: {len(client_accounts)}")
         if len(client_accounts) < num_accounts:
-            raise ValueError(
-                f"Se requieren {num_accounts} cuentas pero solo hay {len(client_accounts)} disponibles"
-            )
+            raise ValueError(f"Se requieren {num_accounts} cuentas pero solo hay {len(client_accounts)} disponibles")
 
         # 3. Distribuir cuentas equitativamente
         logger.info("Paso 3: Distribuyendo cuentas equitativamente...")
-        distribution = self._distribute_accounts_equitably(
-            client_accounts, top_agents
-        )
+        distribution = self._distribute_accounts_equitably(client_accounts, top_agents)
         logger.info(f"Distribucion completada: {len(distribution)} asignaciones")
 
         # 4. Crear/actualizar registros en cuentas_clientes_trading (bulk upsert)
@@ -104,9 +90,7 @@ class ClientAccountsService:
         bulk_operations = []
 
         for account_data in distribution:
-            cuenta_existente = self.cuentas_trading_col.find_one(
-                {"cuenta_id": account_data["cuenta_id"]}
-            )
+            cuenta_existente = self.cuentas_trading_col.find_one({"cuenta_id": account_data["cuenta_id"]})
 
             if cuenta_existente:
                 bulk_operations.append(
@@ -117,9 +101,9 @@ class ClientAccountsService:
                                 "agente_actual": account_data["agente_id"],
                                 "fecha_asignacion_agente": fecha_asignacion,
                                 "roi_agente_al_asignar": account_data["roi_agente"],
-                                "updated_at": fecha_asignacion
+                                "updated_at": fecha_asignacion,
                             }
-                        }
+                        },
                     )
                 )
             else:
@@ -137,7 +121,7 @@ class ClientAccountsService:
                     "numero_cambios_agente": 0,
                     "estado": "activo",
                     "created_at": fecha_asignacion,
-                    "updated_at": fecha_asignacion
+                    "updated_at": fecha_asignacion,
                 }
                 bulk_operations.append(InsertOne(trading_account))
 
@@ -165,7 +149,7 @@ class ClientAccountsService:
                 "balance_fin": None,
                 "motivo_cambio": "inicial",
                 "dias_con_agente": None,
-                "created_at": fecha_asignacion
+                "created_at": fecha_asignacion,
             }
             historial_entries.append(historial_entry)
 
@@ -175,13 +159,9 @@ class ClientAccountsService:
             logger.info(f"Insertadas {len(historial_entries)} entradas de historial")
 
         # 6. Crear snapshot de distribucion
-        snapshot = self._create_distribution_snapshot(
-            simulation_id, distribution, fecha_asignacion
-        )
+        snapshot = self._create_distribution_snapshot(simulation_id, distribution, fecha_asignacion)
 
-        logger.info(
-            f"Distribucion completada: {num_accounts} cuentas asignadas a {num_top_agents} agentes"
-        )
+        logger.info(f"Distribucion completada: {num_accounts} cuentas asignadas a {num_top_agents} agentes")
 
         return {
             "simulation_id": simulation_id,
@@ -189,7 +169,7 @@ class ClientAccountsService:
             "total_agents": num_top_agents,
             "accounts_per_agent": self._get_accounts_per_agent_summary(distribution),
             "snapshot_id": str(snapshot.inserted_id),
-            "fecha_asignacion": fecha_asignacion.isoformat()
+            "fecha_asignacion": fecha_asignacion.isoformat(),
         }
 
     def reset_simulation_accounts(self) -> Dict[str, Any]:
@@ -242,9 +222,9 @@ class ClientAccountsService:
                             "roi_acumulado_con_agente": 0.0,
                             "numero_cambios_agente": 0,
                             "win_rate": 0.0,
-                            "updated_at": fecha_reset
+                            "updated_at": fecha_reset,
                         }
-                    }
+                    },
                 )
             )
 
@@ -274,36 +254,27 @@ class ClientAccountsService:
             "fecha_reset": fecha_reset.isoformat(),
             "balance_inicial_preserved": True,
             "historial_limpiado": True,
-            "snapshots_limpiados": True
+            "snapshots_limpiados": True,
         }
 
-    def redistribute_accounts_to_top16(
-        self,
-        target_date: Optional[str] = None,
-        window_days: int = 7
-    ) -> Dict[str, Any]:
+    def _get_top16_agents_for_redistribution(
+        self, target_date: Optional[str], window_days: int
+    ) -> tuple[List[Dict[str, Any]], str]:
         """
-        Redistribuye todas las cuentas existentes entre los agentes del Top 16 actual.
-
-        Este método se ejecuta automáticamente después de una simulación para
-        reasignar las cuentas a los mejores agentes del Top16.
+        Obtiene los agentes del Top 16 para redistribución.
 
         Args:
-            target_date: Fecha objetivo (opcional, usa la más reciente si no se especifica)
-            window_days: Ventana de días usada en la simulación (determina colección). Default: 7
+            target_date: Fecha objetivo (opcional)
+            window_days: Ventana de días
 
         Returns:
-            Dict con información de la redistribución
+            Tupla de (lista de agentes, fecha usada)
         """
-        logger.info(f"=== INICIANDO REDISTRIBUCIÓN DE CUENTAS AL TOP16 (VENTANA {window_days}D) ===")
-
-        # Obtener colección dinámica según ventana
         top16_collection_name = get_top16_collection_name(window_days)
         top16_col = self.db[top16_collection_name]
 
         logger.info(f"Usando colección: {top16_collection_name}")
 
-        # 1. Obtener Top 16 agentes actuales
         if target_date:
             top16_docs = list(
                 top16_col.find({"date": target_date, "is_in_casterly": True})
@@ -311,7 +282,6 @@ class ClientAccountsService:
                 .limit(16)
             )
         else:
-            # Obtener la fecha más reciente
             latest_date_doc = top16_col.find_one(sort=[("date", -1)])
             if not latest_date_doc:
                 raise ValueError(f"No se encontraron agentes en {top16_collection_name}")
@@ -324,26 +294,73 @@ class ClientAccountsService:
             )
 
         if not top16_docs:
-            raise ValueError(f"No se encontraron agentes del Top16 para la fecha {target_date} en {top16_collection_name}")
+            raise ValueError(
+                f"No se encontraron agentes del Top16 para la fecha {target_date} "
+                f"en {top16_collection_name}"
+            )
 
         logger.info(f"Top16 encontrados: {len(top16_docs)} agentes")
+        return top16_docs, target_date
 
-        # 2. Obtener todas las cuentas activas
+    def _get_active_accounts_for_redistribution(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene todas las cuentas activas para redistribución.
+
+        Returns:
+            Lista de cuentas activas
+
+        Raises:
+            ValueError: Si no hay cuentas activas
+        """
         cuentas = list(self.cuentas_trading_col.find({"estado": "activo"}))
-        total_cuentas = len(cuentas)
 
-        if total_cuentas == 0:
+        if not cuentas:
             raise ValueError("No hay cuentas activas para redistribuir")
 
-        logger.info(f"Cuentas activas a redistribuir: {total_cuentas}")
+        logger.info(f"Cuentas activas a redistribuir: {len(cuentas)}")
+        return cuentas
 
-        # 3. Distribuir cuentas equitativamente
-        cuentas_por_agente = total_cuentas // len(top16_docs)
-        cuentas_extra = total_cuentas % len(top16_docs)
+    def _calculate_distribution_metrics(
+        self, total_cuentas: int, num_agents: int
+    ) -> tuple[int, int]:
+        """
+        Calcula métricas de distribución equitativa.
 
-        logger.info(f"Distribución: {cuentas_por_agente} cuentas por agente, {cuentas_extra} extra")
+        Args:
+            total_cuentas: Total de cuentas a distribuir
+            num_agents: Número de agentes
 
-        # 4. Preparar updates masivos
+        Returns:
+            Tupla de (cuentas_por_agente, cuentas_extra)
+        """
+        cuentas_por_agente = total_cuentas // num_agents
+        cuentas_extra = total_cuentas % num_agents
+
+        logger.info(
+            f"Distribución: {cuentas_por_agente} cuentas por agente, {cuentas_extra} extra"
+        )
+
+        return cuentas_por_agente, cuentas_extra
+
+    def _generate_redistribution_bulk_ops(
+        self,
+        top16_docs: List[Dict[str, Any]],
+        cuentas: List[Dict[str, Any]],
+        cuentas_por_agente: int,
+        cuentas_extra: int,
+    ) -> tuple[List, int, int]:
+        """
+        Genera operaciones bulk para redistribución de cuentas.
+
+        Args:
+            top16_docs: Lista de agentes Top 16
+            cuentas: Lista de cuentas a redistribuir
+            cuentas_por_agente: Cuentas base por agente
+            cuentas_extra: Cuentas extra a distribuir
+
+        Returns:
+            Tupla de (bulk_operations, cuentas_reasignadas, cuentas_sin_cambio)
+        """
         from pymongo import UpdateOne
 
         bulk_operations = []
@@ -351,15 +368,14 @@ class ClientAccountsService:
         cuenta_index = 0
         cuentas_reasignadas = 0
         cuentas_sin_cambio = 0
+        total_cuentas = len(cuentas)
 
         for idx, top_agent in enumerate(top16_docs):
             agente_id = top_agent["agent_id"]
             roi_agente = top_agent.get("roi_7d", 0.0)
 
-            # Calcular cuántas cuentas le tocan a este agente
             num_cuentas = cuentas_por_agente + (1 if idx < cuentas_extra else 0)
 
-            # Asignar cuentas a este agente
             for _ in range(num_cuentas):
                 if cuenta_index >= total_cuentas:
                     break
@@ -368,9 +384,7 @@ class ClientAccountsService:
                 cuenta_id = cuenta["cuenta_id"]
                 agente_anterior = cuenta.get("agente_actual")
 
-                # Solo actualizar si el agente cambió
                 if agente_anterior != agente_id:
-                    # Actualizar cuenta usando UpdateOne
                     bulk_operations.append(
                         UpdateOne(
                             {"cuenta_id": cuenta_id},
@@ -380,41 +394,52 @@ class ClientAccountsService:
                                     "fecha_asignacion_agente": fecha_actual,
                                     "roi_agente_al_asignar": roi_agente,
                                     "roi_acumulado_con_agente": 0.0,
-                                    "updated_at": fecha_actual
+                                    "updated_at": fecha_actual,
                                 },
-                                "$inc": {
-                                    "numero_cambios_agente": 1
-                                }
-                            }
+                                "$inc": {"numero_cambios_agente": 1},
+                            },
                         )
                     )
-
                     cuentas_reasignadas += 1
                 else:
                     cuentas_sin_cambio += 1
 
                 cuenta_index += 1
 
-        # 5. Ejecutar updates masivos
+        return bulk_operations, cuentas_reasignadas, cuentas_sin_cambio
+
+    def _execute_redistribution_bulk_ops(self, bulk_operations: List) -> None:
+        """
+        Ejecuta operaciones bulk de redistribución.
+
+        Args:
+            bulk_operations: Lista de operaciones UpdateOne
+        """
         if bulk_operations:
             result = self.cuentas_trading_col.bulk_write(bulk_operations)
             logger.info(f"Cuentas actualizadas: {result.modified_count}")
         else:
             logger.info("No hubo cambios en las asignaciones")
 
-        # 6. Crear registros en historial para las cuentas reasignadas
-        # (Solo para las que cambiaron de agente)
-        historial_entries = []
+    def _create_redistribution_historial_entries(
+        self, top16_docs: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Crea entradas de historial para cuentas redistribuidas.
 
-        for idx, top_agent in enumerate(top16_docs):
+        Args:
+            top16_docs: Lista de agentes Top 16
+        """
+        historial_entries = []
+        fecha_actual = datetime.utcnow()
+
+        for top_agent in top16_docs:
             agente_id = top_agent["agent_id"]
             roi_agente = top_agent.get("roi_7d", 0.0)
 
-            # Obtener cuentas actuales de este agente
-            cuentas_agente = self.cuentas_trading_col.find({
-                "agente_actual": agente_id,
-                "estado": "activo"
-            })
+            cuentas_agente = self.cuentas_trading_col.find(
+                {"agente_actual": agente_id, "estado": "activo"}
+            )
 
             for cuenta in cuentas_agente:
                 historial_entry = {
@@ -429,22 +454,71 @@ class ClientAccountsService:
                     "roi_cuenta_ganado": None,
                     "balance_inicio": cuenta.get("balance_actual", 1000.0),
                     "balance_fin": None,
-                    "motivo_cambio": "re-balanceo",  # Usar valor válido del schema
+                    "motivo_cambio": "re-balanceo",
                     "dias_con_agente": None,
-                    "created_at": fecha_actual
+                    "created_at": fecha_actual,
                 }
                 historial_entries.append(historial_entry)
 
-        # Cerrar entradas anteriores del historial (fecha_fin = None → fecha_actual)
         self.historial_col.update_many(
-            {"fecha_fin": None},
-            {"$set": {"fecha_fin": fecha_actual}}
+            {"fecha_fin": None}, {"$set": {"fecha_fin": fecha_actual}}
         )
 
-        # Insertar nuevas entradas
         if historial_entries:
             self.historial_col.insert_many(historial_entries)
             logger.info(f"Insertadas {len(historial_entries)} entradas en historial")
+
+    def redistribute_accounts_to_top16(self, target_date: Optional[str] = None, window_days: int = 7) -> Dict[str, Any]:
+        """
+        Redistribuye todas las cuentas existentes entre los agentes del Top 16 actual.
+
+        Este método se ejecuta automáticamente después de una simulación para
+        reasignar las cuentas a los mejores agentes del Top16.
+
+        Esta función ha sido refactorizada para reducir complejidad (13 -> ~7).
+        Secciones extraídas:
+        1. _get_top16_agents_for_redistribution: Obtiene Top 16
+        2. _get_active_accounts_for_redistribution: Obtiene cuentas activas
+        3. _calculate_distribution_metrics: Calcula distribución
+        4. _generate_redistribution_bulk_ops: Genera operaciones bulk
+        5. _execute_redistribution_bulk_ops: Ejecuta operaciones
+        6. _create_redistribution_historial_entries: Crea historial
+
+        Args:
+            target_date: Fecha objetivo (opcional, usa la más reciente si no se especifica)
+            window_days: Ventana de días usada en la simulación (determina colección). Default: 7
+
+        Returns:
+            Dict con información de la redistribución
+        """
+        logger.info(f"=== INICIANDO REDISTRIBUCIÓN DE CUENTAS AL TOP16 (VENTANA {window_days}D) ===")
+
+        # 1. Obtener Top 16 agentes actuales
+        top16_docs, target_date = self._get_top16_agents_for_redistribution(
+            target_date, window_days
+        )
+
+        # 2. Obtener todas las cuentas activas
+        cuentas = self._get_active_accounts_for_redistribution()
+        total_cuentas = len(cuentas)
+
+        # 3. Calcular distribución equitativa
+        cuentas_por_agente, cuentas_extra = self._calculate_distribution_metrics(
+            total_cuentas, len(top16_docs)
+        )
+
+        # 4. Generar operaciones bulk de actualización
+        bulk_operations, cuentas_reasignadas, cuentas_sin_cambio = (
+            self._generate_redistribution_bulk_ops(
+                top16_docs, cuentas, cuentas_por_agente, cuentas_extra
+            )
+        )
+
+        # 5. Ejecutar operaciones bulk
+        self._execute_redistribution_bulk_ops(bulk_operations)
+
+        # 6. Crear entradas de historial
+        self._create_redistribution_historial_entries(top16_docs)
 
         logger.info(
             f"=== REDISTRIBUCIÓN COMPLETADA ===\n"
@@ -462,7 +536,7 @@ class ClientAccountsService:
             "cuentas_reasignadas": cuentas_reasignadas,
             "cuentas_sin_cambio": cuentas_sin_cambio,
             "num_agentes_top16": len(top16_docs),
-            "cuentas_por_agente": cuentas_por_agente
+            "cuentas_por_agente": cuentas_por_agente,
         }
 
     def _get_top_agents(self, simulation_id: str, num_agents: int) -> List[Dict[str, Any]]:
@@ -486,9 +560,7 @@ class ClientAccountsService:
 
         # Obtener los Top N agentes de esa fecha, ordenados por rank
         agents = list(
-            self.top16_col.find(
-                {"date": latest_date, "is_in_casterly": True}
-            ).sort("rank", 1).limit(num_agents)
+            self.top16_col.find({"date": latest_date, "is_in_casterly": True}).sort("rank", 1).limit(num_agents)
         )
 
         return [
@@ -496,7 +568,7 @@ class ClientAccountsService:
                 "agente_id": agent["agent_id"],
                 "nombre": agent.get("agent_id", f"Agente {agent['agent_id']}"),
                 "roi_7d": agent.get("roi_7d", 0.0) * 100,  # Convertir a porcentaje
-                "win_rate": 0.0  # No disponible en esta tabla
+                "win_rate": 0.0,  # No disponible en esta tabla
             }
             for agent in agents
         ]
@@ -515,7 +587,18 @@ class ClientAccountsService:
 
         # Generar nombres de clientes
         nombres = ["Juan", "María", "Pedro", "Ana", "Luis", "Carmen", "José", "Laura", "Carlos", "Isabel"]
-        apellidos = ["García", "Rodríguez", "Martínez", "López", "González", "Pérez", "Sánchez", "Ramírez", "Torres", "Flores"]
+        apellidos = [
+            "García",
+            "Rodríguez",
+            "Martínez",
+            "López",
+            "González",
+            "Pérez",
+            "Sánchez",
+            "Ramírez",
+            "Torres",
+            "Flores",
+        ]
 
         accounts = []
         for i in range(num_accounts):
@@ -523,17 +606,12 @@ class ClientAccountsService:
             if i >= len(nombres) * len(apellidos):
                 nombre_cliente = f"{nombre_cliente} {i // (len(nombres) * len(apellidos)) + 1}"
 
-            accounts.append({
-                "cuenta_id": str(ObjectId()),
-                "nombre_cliente": nombre_cliente
-            })
+            accounts.append({"cuenta_id": str(ObjectId()), "nombre_cliente": nombre_cliente})
 
         return accounts
 
     def _distribute_accounts_equitably(
-        self,
-        accounts: List[Dict[str, Any]],
-        agents: List[Dict[str, Any]]
+        self, accounts: List[Dict[str, Any]], agents: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
         Distribuye cuentas equitativamente entre agentes.
@@ -556,19 +634,18 @@ class ClientAccountsService:
             agent_idx = idx % num_agents
             agent = agents[agent_idx]
 
-            distribution.append({
-                "cuenta_id": account["cuenta_id"],
-                "nombre_cliente": account["nombre_cliente"],
-                "agente_id": agent["agente_id"],
-                "roi_agente": agent["roi_7d"]
-            })
+            distribution.append(
+                {
+                    "cuenta_id": account["cuenta_id"],
+                    "nombre_cliente": account["nombre_cliente"],
+                    "agente_id": agent["agente_id"],
+                    "roi_agente": agent["roi_7d"],
+                }
+            )
 
         return distribution
 
-    def _get_accounts_per_agent_summary(
-        self,
-        distribution: List[Dict[str, Any]]
-    ) -> Dict[str, int]:
+    def _get_accounts_per_agent_summary(self, distribution: List[Dict[str, Any]]) -> Dict[str, int]:
         """
         Calcula el resumen de cuentas por agente.
 
@@ -586,10 +663,7 @@ class ClientAccountsService:
         return summary
 
     def _create_distribution_snapshot(
-        self,
-        simulation_id: str,
-        distribution: List[Dict[str, Any]],
-        fecha_snapshot: datetime
+        self, simulation_id: str, distribution: List[Dict[str, Any]], fecha_snapshot: datetime
     ) -> Any:
         """
         Crea un snapshot de la distribucion actual.
@@ -607,16 +681,12 @@ class ClientAccountsService:
             "fecha_snapshot": fecha_snapshot,
             "total_cuentas": len(distribution),
             "distribucion": self._get_accounts_per_agent_summary(distribution),
-            "created_at": fecha_snapshot
+            "created_at": fecha_snapshot,
         }
 
         return self.snapshot_col.insert_one(snapshot)
 
-    def update_client_accounts_roi(
-        self,
-        simulation_id: str,
-        window_days: int = 7
-    ) -> Dict[str, Any]:
+    def update_client_accounts_roi(self, simulation_id: str, window_days: int = 7) -> Dict[str, Any]:
         """
         Actualiza el ROI y Win Rate de todas las cuentas de clientes basado en el ROI actual de sus agentes.
 
@@ -634,6 +704,7 @@ class ClientAccountsService:
 
         # Obtener colecciones dinámicas
         from app.utils.collection_names import get_roi_collection_name
+
         top16_collection_name = get_top16_collection_name(window_days)
         roi_collection_name = get_roi_collection_name(window_days)
 
@@ -649,27 +720,21 @@ class ClientAccountsService:
             return {
                 "simulation_id": simulation_id,
                 "cuentas_actualizadas": 0,
-                "fecha_actualizacion": datetime.utcnow().isoformat()
+                "fecha_actualizacion": datetime.utcnow().isoformat(),
             }
 
         latest_date = latest_date_doc["date"]
 
         # Obtener todos los agentes de la fecha mas reciente en un solo query
         agentes = list(top16_col.find({"date": latest_date}))
-        agentes_dict = {
-            ag["agent_id"]: ag.get("roi_7d", 0.0) * 100  # Convertir a porcentaje
-            for ag in agentes
-        }
+        agentes_dict = {ag["agent_id"]: ag.get("roi_7d", 0.0) * 100 for ag in agentes}  # Convertir a porcentaje
 
         # Obtener todos los agent_id de los agentes
         agent_ids = [ag.get("agent_id") for ag in agentes if ag.get("agent_id")]
 
         # Query masivo para obtener datos de ROI de todos los agentes
         # Buscar por userId (que coincide con agent_id de top16)
-        roi_docs = list(agent_roi_col.find({
-            "target_date": latest_date,
-            "userId": {"$in": agent_ids}
-        }))
+        roi_docs = list(agent_roi_col.find({"target_date": latest_date, "userId": {"$in": agent_ids}}))
 
         # Crear mapa de agent_id -> win_rate para acceso rapido
         win_rate_map = {}
@@ -692,6 +757,7 @@ class ClientAccountsService:
 
         # Preparar operaciones de actualizacion en bulk
         from pymongo import UpdateOne
+
         bulk_operations = []
 
         for cuenta in cuentas:
@@ -727,9 +793,9 @@ class ClientAccountsService:
                             "roi_total": roi_total_nuevo,
                             "balance_actual": balance_actual,
                             "win_rate": win_rate,
-                            "updated_at": datetime.utcnow()
+                            "updated_at": datetime.utcnow(),
                         }
-                    }
+                    },
                 )
             )
 
@@ -743,14 +809,11 @@ class ClientAccountsService:
         return {
             "simulation_id": simulation_id,
             "cuentas_actualizadas": actualizaciones,
-            "fecha_actualizacion": datetime.utcnow().isoformat()
+            "fecha_actualizacion": datetime.utcnow().isoformat(),
         }
 
     def get_client_accounts(
-        self,
-        skip: int = 0,
-        limit: int = 100,
-        agente_id: Optional[str] = None
+        self, skip: int = 0, limit: int = 100, agente_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Obtiene lista de cuentas de clientes con paginacion.
@@ -767,12 +830,7 @@ class ClientAccountsService:
         if agente_id:
             query["agente_actual"] = agente_id
 
-        cuentas = list(
-            self.cuentas_trading_col.find(query)
-            .skip(skip)
-            .limit(limit)
-            .sort("roi_total", -1)
-        )
+        cuentas = list(self.cuentas_trading_col.find(query).skip(skip).limit(limit).sort("roi_total", -1))
 
         return [self._format_cuenta_response(cuenta) for cuenta in cuentas]
 
@@ -798,7 +856,7 @@ class ClientAccountsService:
             "roi_agente_al_asignar": cuenta["roi_agente_al_asignar"],
             "roi_acumulado_con_agente": cuenta.get("roi_acumulado_con_agente", 0.0),
             "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0),
-            "estado": cuenta["estado"]
+            "estado": cuenta["estado"],
         }
 
     def get_client_account_by_id(self, cuenta_id: str) -> Dict[str, Any]:
@@ -828,8 +886,7 @@ class ClientAccountsService:
 
         # 2. Obtener historial de asignaciones
         historial = list(
-            self.historial_col.find({"cuenta_id": cuenta_id})
-            .sort("fecha_inicio", -1)  # Más reciente primero
+            self.historial_col.find({"cuenta_id": cuenta_id}).sort("fecha_inicio", -1)  # Más reciente primero
         )
 
         logger.info(f"Historial encontrado: {len(historial)} asignaciones")
@@ -849,14 +906,12 @@ class ClientAccountsService:
             "estado": cuenta["estado"],
             "agente_actual": cuenta["agente_actual"],
             "roi_total": cuenta["roi_total"],
-
             # Campos extra (útiles para el frontend)
             "fecha_asignacion_agente": cuenta["fecha_asignacion_agente"].isoformat(),
             "roi_agente_al_asignar": cuenta["roi_agente_al_asignar"],
             "roi_acumulado_con_agente": cuenta.get("roi_acumulado_con_agente", 0.0),
             "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0),
             "win_rate": cuenta.get("win_rate", 0.0),
-
             # Historial embebido (renombrado para coincidir con frontend)
             "historial": [
                 {
@@ -870,16 +925,13 @@ class ClientAccountsService:
                     "motivo_cambio": h["motivo_cambio"],
                     # Campos extra
                     "roi_cuenta_ganado": h.get("roi_cuenta_ganado"),
-                    "dias_con_agente": h.get("dias_con_agente")
+                    "dias_con_agente": h.get("dias_con_agente"),
                 }
                 for h in historial
-            ]
+            ],
         }
 
-    def get_client_accounts_stats(
-        self,
-        simulation_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def get_client_accounts_stats(self, simulation_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Obtiene estadísticas agregadas de las cuentas de clientes.
 
@@ -901,7 +953,6 @@ class ClientAccountsService:
         pipeline = [
             # 1. Filtrar solo cuentas activas
             {"$match": {"estado": "activo"}},
-
             # 2. Calcular agregaciones
             {
                 "$group": {
@@ -909,9 +960,9 @@ class ClientAccountsService:
                     "total_cuentas": {"$sum": 1},
                     "balance_total": {"$sum": "$balance_actual"},
                     "roi_promedio": {"$avg": "$roi_total"},
-                    "win_rate_promedio": {"$avg": "$win_rate"}
+                    "win_rate_promedio": {"$avg": "$win_rate"},
                 }
-            }
+            },
         ]
 
         # Ejecutar agregación
@@ -925,7 +976,7 @@ class ClientAccountsService:
                 "total_cuentas": 0,
                 "balance_total": 0.0,
                 "roi_promedio": 0.0,
-                "win_rate_promedio": 0.0
+                "win_rate_promedio": 0.0,
             }
 
         # Formatear respuesta
@@ -941,7 +992,7 @@ class ClientAccountsService:
             "total_cuentas": stats["total_cuentas"],
             "balance_total": round(stats["balance_total"], 2),
             "roi_promedio": round(stats["roi_promedio"], 2),
-            "win_rate_promedio": round(stats["win_rate_promedio"] * 100, 2)  # Convertir a porcentaje
+            "win_rate_promedio": round(stats["win_rate_promedio"] * 100, 2),  # Convertir a porcentaje
         }
 
     def get_all_client_accounts_formatted(
@@ -950,7 +1001,7 @@ class ClientAccountsService:
         skip: int = 0,
         limit: int = 1000,
         agente_id: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Obtiene lista de cuentas con formato compatible con frontend.
@@ -973,9 +1024,7 @@ class ClientAccountsService:
         Returns:
             Dict con {accounts: [...], total: X, skip: X, limit: X}
         """
-        logger.info(
-            f"Obteniendo cuentas (skip={skip}, limit={limit}, agente={agente_id}, search={search})"
-        )
+        logger.info(f"Obteniendo cuentas (skip={skip}, limit={limit}, agente={agente_id}, search={search})")
 
         # Construir query
         query = {"estado": "activo"}
@@ -989,7 +1038,7 @@ class ClientAccountsService:
             query["$or"] = [
                 {"nombre_cliente": search_regex},
                 {"cuenta_id": search_regex},
-                {"agente_actual": search_regex}
+                {"agente_actual": search_regex},
             ]
 
         # Nota: simulation_id no se usa porque cuentas_clientes_trading
@@ -1015,36 +1064,268 @@ class ClientAccountsService:
             # Generar email desde el nombre del cliente
             email = f"{cuenta['nombre_cliente'].lower().replace(' ', '')}@example.com"
 
-            formatted_accounts.append({
-                "cuenta_id": cuenta["cuenta_id"],  # Mantener nombre consistente
-                "nombre_cliente": cuenta["nombre_cliente"],
-                "email": email,  # Agregar
-                "balance_inicial": cuenta["balance_inicial"],
-                "balance_actual": cuenta["balance_actual"],
-                "fecha_creacion": cuenta["created_at"].isoformat(),  # Convertir a ISO
-                "estado": cuenta["estado"],
-                "agente_actual": cuenta["agente_actual"],
-                "roi_total": cuenta["roi_total"],
-                # Campos extra (no en modelo frontend pero útiles)
-                "win_rate": cuenta.get("win_rate", 0.0),
-                "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0)
-                # NO incluir historial aquí (performance)
-            })
+            formatted_accounts.append(
+                {
+                    "cuenta_id": cuenta["cuenta_id"],  # Mantener nombre consistente
+                    "nombre_cliente": cuenta["nombre_cliente"],
+                    "email": email,  # Agregar
+                    "balance_inicial": cuenta["balance_inicial"],
+                    "balance_actual": cuenta["balance_actual"],
+                    "fecha_creacion": cuenta["created_at"].isoformat(),  # Convertir a ISO
+                    "estado": cuenta["estado"],
+                    "agente_actual": cuenta["agente_actual"],
+                    "roi_total": cuenta["roi_total"],
+                    # Campos extra (no en modelo frontend pero útiles)
+                    "win_rate": cuenta.get("win_rate", 0.0),
+                    "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0),
+                    # NO incluir historial aquí (performance)
+                }
+            )
+
+        return {"accounts": formatted_accounts, "total": total_cuentas, "skip": skip, "limit": limit}
+
+    def _calculate_rebalance_metrics(self, cuentas: List[Dict[str, Any]], max_move_percentage: float) -> Dict[str, Any]:
+        """
+        Calcula métricas iniciales para el re-balanceo.
+
+        Returns:
+            Dict con total_cuentas, max_cuentas_a_mover, roi_promedio, cuentas_bajo_promedio
+        """
+        total_cuentas = len(cuentas)
+        max_cuentas_a_mover = int(total_cuentas * max_move_percentage)
+        roi_promedio = sum(c["roi_total"] for c in cuentas) / total_cuentas
+        cuentas_bajo_promedio = [c for c in cuentas if c["roi_total"] < roi_promedio]
+
+        logger.info(f"ROI promedio: {roi_promedio:.2f}%")
+        logger.info(f"Max cuentas a mover: {max_cuentas_a_mover} ({max_move_percentage * 100}%)")
+        logger.info(f"Cuentas bajo promedio: {len(cuentas_bajo_promedio)}")
 
         return {
-            "accounts": formatted_accounts,
-            "total": total_cuentas,
-            "skip": skip,
-            "limit": limit
+            "total_cuentas": total_cuentas,
+            "max_cuentas_a_mover": max_cuentas_a_mover,
+            "roi_promedio": roi_promedio,
+            "cuentas_bajo_promedio": cuentas_bajo_promedio,
         }
 
-    def rebalance_accounts(
+    def _find_mejor_agente(
+        self, agente_actual_id: str, agentes_dict: Dict[str, Dict[str, Any]], top_agents: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Encuentra el mejor agente alternativo para una cuenta.
+
+        Returns:
+            Diccionario del mejor agente, o None si no hay mejor opción
+        """
+        agente_actual = agentes_dict.get(agente_actual_id)
+
+        # Si el agente actual NO está en top 16, asignar al mejor agente disponible
+        if not agente_actual:
+            logger.info(
+                f"[REBALANCE] Agente actual '{agente_actual_id}' no esta en top 16 - asignando al mejor agente"
+            )
+            return top_agents[0]  # Mejor agente (rank 1)
+
+        # Encontrar mejor agente (con mayor ROI que no sea el actual)
+        for ag in top_agents:
+            if ag["agente_id"] != agente_actual_id and ag["roi_7d"] > agente_actual["roi_7d"]:
+                return ag
+
+        logger.info(f"[REBALANCE] INFO: No hay mejor agente que '{agente_actual_id}' - skip")
+        return None
+
+    def _close_current_assignment(
+        self, cuenta: Dict[str, Any], agente_actual_id: str, agente_actual_roi: float, fecha_rebalanceo: datetime
+    ) -> None:
+        """
+        Cierra la asignación actual en el historial.
+        """
+        try:
+            dias_con_agente = (fecha_rebalanceo - cuenta["fecha_asignacion_agente"]).days
+        except Exception as e:
+            logger.info(f"[REBALANCE] ERROR calculando dias_con_agente: {e}")
+            dias_con_agente = 0
+
+        update_values = {
+            "fecha_fin": fecha_rebalanceo,
+            "roi_agente_fin": agente_actual_roi,
+            "roi_cuenta_ganado": cuenta.get("roi_acumulado_con_agente", 0.0),
+            "balance_fin": cuenta.get("balance_actual", 0.0),
+            "dias_con_agente": dias_con_agente,
+        }
+
+        logger.info(
+            f"[REBALANCE] Cerrando asignacion - cuenta: {cuenta['cuenta_id']}, agente: {agente_actual_id}, dias: {dias_con_agente}"
+        )
+
+        update_result = self.historial_col.update_one(
+            {"cuenta_id": cuenta["cuenta_id"], "agente_id": agente_actual_id, "fecha_fin": None},
+            {"$set": update_values},
+        )
+
+        if update_result.matched_count == 0:
+            logger.info(
+                f"[REBALANCE] WARNING: No se encontro asignacion activa para cerrar: cuenta_id={cuenta['cuenta_id']}"
+            )
+        elif update_result.modified_count == 0:
+            logger.info("[REBALANCE] WARNING: Asignacion encontrada pero no modificada")
+
+    def _create_assignment_records(
+        self,
+        cuenta: Dict[str, Any],
+        mejor_agente: Dict[str, Any],
+        agente_actual_id: str,
+        agente_actual_roi: float,
+        simulation_id: str,
+        fecha_rebalanceo: datetime,
+    ) -> tuple[Dict[str, Any], Any, Dict[str, Any]]:
+        """
+        Crea los registros necesarios para una nueva asignación.
+
+        Returns:
+            tuple: (historial_entry, bulk_update, movimiento)
+        """
+        from pymongo import UpdateOne
+
+        historial_entry = {
+            "cuenta_id": cuenta["cuenta_id"],
+            "nombre_cliente": cuenta["nombre_cliente"],
+            "agente_id": mejor_agente["agente_id"],
+            "simulation_id": simulation_id,
+            "fecha_inicio": fecha_rebalanceo,
+            "fecha_fin": None,
+            "roi_agente_inicio": mejor_agente["roi_7d"],
+            "roi_agente_fin": None,
+            "roi_cuenta_ganado": None,
+            "balance_inicio": cuenta["balance_actual"],
+            "balance_fin": None,
+            "motivo_cambio": "re-balanceo",
+            "dias_con_agente": None,
+            "created_at": fecha_rebalanceo,
+        }
+
+        bulk_update = UpdateOne(
+            {"_id": cuenta["_id"]},
+            {
+                "$set": {
+                    "agente_actual": mejor_agente["agente_id"],
+                    "fecha_asignacion_agente": fecha_rebalanceo,
+                    "roi_agente_al_asignar": mejor_agente["roi_7d"],
+                    "roi_acumulado_con_agente": 0.0,
+                    "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0) + 1,
+                    "updated_at": fecha_rebalanceo,
+                }
+            },
+        )
+
+        movimiento = {
+            "cuenta_id": cuenta["cuenta_id"],
+            "nombre_cliente": cuenta["nombre_cliente"],
+            "agente_origen": agente_actual_id,
+            "agente_destino": mejor_agente["agente_id"],
+            "roi_cuenta": cuenta["roi_total"],
+            "roi_agente_origen": agente_actual_roi,
+            "roi_agente_destino": mejor_agente["roi_7d"],
+        }
+
+        return historial_entry, bulk_update, movimiento
+
+    def _process_rebalance_for_account(
+        self,
+        cuenta: Dict[str, Any],
+        agentes_dict: Dict[str, Dict[str, Any]],
+        top_agents: List[Dict[str, Any]],
+        simulation_id: str,
+        fecha_rebalanceo: datetime,
+    ) -> Optional[tuple[Dict[str, Any], Any, Dict[str, Any]]]:
+        """
+        Procesa el re-balanceo para una cuenta individual.
+
+        Returns:
+            tuple (historial_entry, bulk_update, movimiento) o None si no se debe mover
+        """
+        agente_actual_id = cuenta["agente_actual"]
+        agente_actual = agentes_dict.get(agente_actual_id)
+
+        # Determinar mejor agente y ROI actual
+        mejor_agente = self._find_mejor_agente(agente_actual_id, agentes_dict, top_agents)
+
+        if not mejor_agente:
+            return None
+
+        agente_actual_roi = agente_actual.get("roi_7d", 0.0) if agente_actual else 0.0
+
+        # Cerrar asignación actual
+        self._close_current_assignment(cuenta, agente_actual_id, agente_actual_roi, fecha_rebalanceo)
+
+        # Crear registros para nueva asignación
+        return self._create_assignment_records(
+            cuenta, mejor_agente, agente_actual_id, agente_actual_roi, simulation_id, fecha_rebalanceo
+        )
+
+    def _execute_bulk_operations(
+        self, bulk_updates: List[Any], historial_entries: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Ejecuta operaciones en bulk (actualizaciones de cuentas e inserciones en historial).
+        """
+        if bulk_updates:
+            self.cuentas_trading_col.bulk_write(bulk_updates)
+            logger.info(f"Actualizadas {len(bulk_updates)} cuentas")
+
+        if historial_entries:
+            self.historial_col.insert_many(historial_entries)
+            logger.info(f"Insertadas {len(historial_entries)} entradas de historial")
+
+    def _save_rebalance_log(
         self,
         simulation_id: str,
-        max_move_percentage: float = 0.30
-    ) -> Dict[str, Any]:
+        fecha_rebalanceo: datetime,
+        roi_promedio: float,
+        roi_promedio_post: float,
+        total_cuentas: int,
+        cuentas_bajo_promedio: int,
+        cuentas_movidas: int,
+        movimientos: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Guarda el log de re-balanceo y crea snapshot.
+        """
+        rebalanceo_log = {
+            "simulation_id": simulation_id,
+            "fecha_rebalanceo": fecha_rebalanceo,
+            "roi_promedio_pre": roi_promedio,
+            "roi_promedio_post": roi_promedio_post,
+            "total_cuentas": total_cuentas,
+            "cuentas_bajo_promedio": cuentas_bajo_promedio,
+            "cuentas_movidas": cuentas_movidas,
+            "porcentaje_movidas": (cuentas_movidas / total_cuentas) * 100,
+            "movimientos": movimientos,
+            "created_at": fecha_rebalanceo,
+        }
+
+        self.rebalanceo_log_col.insert_one(rebalanceo_log)
+
+        # Crear snapshot
+        cuentas_actualizadas = list(self.cuentas_trading_col.find({"estado": "activo"}))
+        distribution = self._get_accounts_per_agent_summary(
+            [{"agente_id": c["agente_actual"]} for c in cuentas_actualizadas]
+        )
+
+        self.snapshot_col.insert_one(
+            {
+                "simulation_id": simulation_id,
+                "fecha_snapshot": fecha_rebalanceo,
+                "total_cuentas": total_cuentas,
+                "distribucion": distribution,
+                "created_at": fecha_rebalanceo,
+            }
+        )
+
+    def rebalance_accounts(self, simulation_id: str, max_move_percentage: float = 0.30) -> Dict[str, Any]:
         """
         Re-balancea cuentas cada 7 dias para equilibrar ROI.
+
+        Esta función ha sido refactorizada para reducir complejidad (15 -> ~7).
 
         Algoritmo:
         1. Calcular ROI promedio de todas las cuentas
@@ -1062,212 +1343,68 @@ class ClientAccountsService:
         logger.info(f"Iniciando re-balanceo para simulacion {simulation_id}")
 
         # 1. Obtener todas las cuentas ordenadas por ROI (ascendente)
-        cuentas = list(
-            self.cuentas_trading_col.find({"estado": "activo"})
-            .sort("roi_total", 1)
-        )
+        cuentas = list(self.cuentas_trading_col.find({"estado": "activo"}).sort("roi_total", 1))
 
         if not cuentas:
-            return {
-                "simulation_id": simulation_id,
-                "cuentas_movidas": 0,
-                "mensaje": "No hay cuentas activas"
-            }
-
-        total_cuentas = len(cuentas)
-        max_cuentas_a_mover = int(total_cuentas * max_move_percentage)
+            return {"simulation_id": simulation_id, "cuentas_movidas": 0, "mensaje": "No hay cuentas activas"}
 
         # 2. Obtener Top 16 agentes ordenados por ROI (descendente)
         top_agents = self._get_top_agents(simulation_id, 16)
         if not top_agents:
-            return {
-                "simulation_id": simulation_id,
-                "cuentas_movidas": 0,
-                "mensaje": "No hay agentes disponibles"
-            }
+            return {"simulation_id": simulation_id, "cuentas_movidas": 0, "mensaje": "No hay agentes disponibles"}
 
-        # Crear diccionario de agentes por ID
+        # 3. Calcular métricas de re-balanceo
+        metrics = self._calculate_rebalance_metrics(cuentas, max_move_percentage)
+        total_cuentas = metrics["total_cuentas"]
+        max_cuentas_a_mover = metrics["max_cuentas_a_mover"]
+        roi_promedio = metrics["roi_promedio"]
+        cuentas_bajo_promedio = metrics["cuentas_bajo_promedio"]
+
+        # 4. Preparar estructuras para procesamiento
         agentes_dict = {ag["agente_id"]: ag for ag in top_agents}
-
-        # 3. Calcular ROI promedio
-        roi_promedio = sum(c["roi_total"] for c in cuentas) / total_cuentas
-
-        logger.info(f"ROI promedio: {roi_promedio:.2f}%")
-        logger.info(f"Max cuentas a mover: {max_cuentas_a_mover} ({max_move_percentage*100}%)")
-
-        # 4. Identificar cuentas bajo el promedio
-        cuentas_bajo_promedio = [c for c in cuentas if c["roi_total"] < roi_promedio]
-
-        logger.info(f"Cuentas bajo promedio: {len(cuentas_bajo_promedio)}")
-
-        # 5. Preparar movimientos
-        from pymongo import UpdateOne
         movimientos = []
         bulk_updates = []
         historial_entries = []
         fecha_rebalanceo = datetime.utcnow()
-
         cuentas_movidas = 0
 
-        print(f"[REBALANCE] ===== Procesando {len(cuentas_bajo_promedio)} cuentas bajo promedio =====")
+        logger.info(f"[REBALANCE] ===== Procesando {len(cuentas_bajo_promedio)} cuentas bajo promedio =====")
 
+        # 5. Procesar cada cuenta bajo promedio
         for cuenta in cuentas_bajo_promedio:
             if cuentas_movidas >= max_cuentas_a_mover:
-                print(f"[REBALANCE] Límite alcanzado: {cuentas_movidas}/{max_cuentas_a_mover}")
+                logger.info(f"[REBALANCE] Límite alcanzado: {cuentas_movidas}/{max_cuentas_a_mover}")
                 break
 
-            agente_actual_id = cuenta["agente_actual"]
-            agente_actual = agentes_dict.get(agente_actual_id)
-
-            # Si el agente actual NO esta en top 16, asignar al mejor agente disponible
-            if not agente_actual:
-                print(f"[REBALANCE] Agente actual '{agente_actual_id}' no esta en top 16 - asignando al mejor agente")
-                mejor_agente = top_agents[0]  # Mejor agente (rank 1)
-                # Usar ROI del agente actual de la tabla de agentes
-                agente_actual_roi = 0.0  # Default si no lo encontramos
-            else:
-                # Encontrar mejor agente (con mayor ROI que no sea el actual)
-                mejor_agente = None
-                for ag in top_agents:
-                    if ag["agente_id"] != agente_actual_id and ag["roi_7d"] > agente_actual["roi_7d"]:
-                        mejor_agente = ag
-                        break
-
-                if not mejor_agente:
-                    print(f"[REBALANCE] INFO: No hay mejor agente que '{agente_actual_id}' para cuenta {cuenta['cuenta_id']} - skip")
-                    continue
-
-                agente_actual_roi = agente_actual.get("roi_7d", 0.0)
-
-            # Cerrar registro actual en historial
-            try:
-                dias_con_agente = (fecha_rebalanceo - cuenta["fecha_asignacion_agente"]).days
-            except Exception as e:
-                print(f"[REBALANCE] ERROR calculando dias_con_agente: {e}")
-                dias_con_agente = 0
-
-            # Preparar valores para el update
-            update_values = {
-                "fecha_fin": fecha_rebalanceo,
-                "roi_agente_fin": agente_actual_roi,
-                "roi_cuenta_ganado": cuenta.get("roi_acumulado_con_agente", 0.0),
-                "balance_fin": cuenta.get("balance_actual", 0.0),
-                "dias_con_agente": dias_con_agente
-            }
-
-            print(f"[REBALANCE] Cerrando asignacion - cuenta: {cuenta['cuenta_id']}, agente: {agente_actual_id}, dias: {dias_con_agente}")
-            print(f"[REBALANCE] Valores: {update_values}")
-
-            update_result = self.historial_col.update_one(
-                {
-                    "cuenta_id": cuenta["cuenta_id"],
-                    "agente_id": agente_actual_id,
-                    "fecha_fin": None
-                },
-                {
-                    "$set": update_values
-                }
+            result = self._process_rebalance_for_account(
+                cuenta, agentes_dict, top_agents, simulation_id, fecha_rebalanceo
             )
 
-            print(f"[REBALANCE] Update result - matched: {update_result.matched_count}, modified: {update_result.modified_count}")
+            if result:
+                historial_entry, bulk_update, movimiento = result
+                historial_entries.append(historial_entry)
+                bulk_updates.append(bulk_update)
+                movimientos.append(movimiento)
+                cuentas_movidas += 1
 
-            if update_result.matched_count == 0:
-                print(f"[REBALANCE] WARNING: No se encontro asignacion activa para cerrar: cuenta_id={cuenta['cuenta_id']}, agente_id={agente_actual_id}")
-            elif update_result.modified_count == 0:
-                print(f"[REBALANCE] WARNING: Asignacion encontrada pero no modificada: cuenta_id={cuenta['cuenta_id']}, agente_id={agente_actual_id}")
+        # 6. Ejecutar operaciones en bulk
+        self._execute_bulk_operations(bulk_updates, historial_entries)
 
-            # Crear nuevo registro en historial
-            historial_entries.append({
-                "cuenta_id": cuenta["cuenta_id"],
-                "nombre_cliente": cuenta["nombre_cliente"],
-                "agente_id": mejor_agente["agente_id"],
-                "simulation_id": simulation_id,
-                "fecha_inicio": fecha_rebalanceo,
-                "fecha_fin": None,
-                "roi_agente_inicio": mejor_agente["roi_7d"],
-                "roi_agente_fin": None,
-                "roi_cuenta_ganado": None,
-                "balance_inicio": cuenta["balance_actual"],
-                "balance_fin": None,
-                "motivo_cambio": "re-balanceo",
-                "dias_con_agente": None,
-                "created_at": fecha_rebalanceo
-            })
-
-            # Actualizar cuenta
-            bulk_updates.append(
-                UpdateOne(
-                    {"_id": cuenta["_id"]},
-                    {
-                        "$set": {
-                            "agente_actual": mejor_agente["agente_id"],
-                            "fecha_asignacion_agente": fecha_rebalanceo,
-                            "roi_agente_al_asignar": mejor_agente["roi_7d"],
-                            "roi_acumulado_con_agente": 0.0,
-                            "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0) + 1,
-                            "updated_at": fecha_rebalanceo
-                        }
-                    }
-                )
-            )
-
-            # Registrar movimiento
-            movimientos.append({
-                "cuenta_id": cuenta["cuenta_id"],
-                "nombre_cliente": cuenta["nombre_cliente"],
-                "agente_origen": agente_actual_id,
-                "agente_destino": mejor_agente["agente_id"],
-                "roi_cuenta": cuenta["roi_total"],
-                "roi_agente_origen": agente_actual_roi,
-                "roi_agente_destino": mejor_agente["roi_7d"]
-            })
-
-            cuentas_movidas += 1
-
-        # 6. Ejecutar actualizaciones en bulk
-        if bulk_updates:
-            self.cuentas_trading_col.bulk_write(bulk_updates)
-            logger.info(f"Actualizadas {len(bulk_updates)} cuentas")
-
-        # 7. Insertar historial en bulk
-        if historial_entries:
-            self.historial_col.insert_many(historial_entries)
-            logger.info(f"Insertadas {len(historial_entries)} entradas de historial")
-
-        # 8. Calcular estadisticas post-rebalanceo
-        cuentas_actualizadas = list(
-            self.cuentas_trading_col.find({"estado": "activo"})
-        )
+        # 7. Calcular estadísticas post-rebalanceo
+        cuentas_actualizadas = list(self.cuentas_trading_col.find({"estado": "activo"}))
         roi_promedio_post = sum(c["roi_total"] for c in cuentas_actualizadas) / len(cuentas_actualizadas)
 
-        # 9. Guardar log de re-balanceo
-        rebalanceo_log = {
-            "simulation_id": simulation_id,
-            "fecha_rebalanceo": fecha_rebalanceo,
-            "roi_promedio_pre": roi_promedio,
-            "roi_promedio_post": roi_promedio_post,
-            "total_cuentas": total_cuentas,
-            "cuentas_bajo_promedio": len(cuentas_bajo_promedio),
-            "cuentas_movidas": cuentas_movidas,
-            "porcentaje_movidas": (cuentas_movidas / total_cuentas) * 100,
-            "movimientos": movimientos,
-            "created_at": fecha_rebalanceo
-        }
-
-        self.rebalanceo_log_col.insert_one(rebalanceo_log)
-
-        # 10. Crear snapshot
-        distribution = self._get_accounts_per_agent_summary(
-            [{"agente_id": c["agente_actual"]} for c in cuentas_actualizadas]
+        # 8. Guardar log de re-balanceo y crear snapshot
+        self._save_rebalance_log(
+            simulation_id,
+            fecha_rebalanceo,
+            roi_promedio,
+            roi_promedio_post,
+            total_cuentas,
+            len(cuentas_bajo_promedio),
+            cuentas_movidas,
+            movimientos,
         )
-
-        self.snapshot_col.insert_one({
-            "simulation_id": simulation_id,
-            "fecha_snapshot": fecha_rebalanceo,
-            "total_cuentas": total_cuentas,
-            "distribucion": distribution,
-            "created_at": fecha_rebalanceo
-        })
 
         logger.info(f"Re-balanceo completado: {cuentas_movidas} cuentas movidas")
 
@@ -1281,15 +1418,10 @@ class ClientAccountsService:
             "cuentas_movidas": cuentas_movidas,
             "porcentaje_movidas": (cuentas_movidas / total_cuentas) * 100,
             "max_permitido": max_cuentas_a_mover,
-            "movimientos": movimientos[:10]  # Solo primeros 10 para no saturar respuesta
+            "movimientos": movimientos[:10],  # Solo primeros 10 para no saturar respuesta
         }
 
-    def rotate_failed_agent(
-        self,
-        simulation_id: str,
-        agente_rotado: str,
-        agente_sustituto: str
-    ) -> Dict[str, Any]:
+    def rotate_failed_agent(self, simulation_id: str, agente_rotado: str, agente_sustituto: str) -> Dict[str, Any]:
         """
         Rota un agente que ha fallado y redistribuye sus cuentas.
 
@@ -1305,17 +1437,10 @@ class ClientAccountsService:
         Returns:
             Dict con resumen de la rotacion
         """
-        logger.info(
-            f"Rotando agente {agente_rotado} por {agente_sustituto} en simulacion {simulation_id}"
-        )
+        logger.info(f"Rotando agente {agente_rotado} por {agente_sustituto} en simulacion {simulation_id}")
 
         # 1. Obtener todas las cuentas del agente rotado
-        cuentas_del_agente = list(
-            self.cuentas_trading_col.find({
-                "agente_actual": agente_rotado,
-                "estado": "activo"
-            })
-        )
+        cuentas_del_agente = list(self.cuentas_trading_col.find({"agente_actual": agente_rotado, "estado": "activo"}))
 
         if not cuentas_del_agente:
             logger.warning(f"No se encontraron cuentas para el agente {agente_rotado}")
@@ -1324,7 +1449,7 @@ class ClientAccountsService:
                 "agente_rotado": agente_rotado,
                 "agente_sustituto": agente_sustituto,
                 "cuentas_redistribuidas": 0,
-                "mensaje": "No hay cuentas asignadas a este agente"
+                "mensaje": "No hay cuentas asignadas a este agente",
             }
 
         num_cuentas = len(cuentas_del_agente)
@@ -1340,9 +1465,7 @@ class ClientAccountsService:
                 break
 
         if not agente_sustituto_info:
-            raise ValueError(
-                f"Agente sustituto {agente_sustituto} no encontrado en top agentes"
-            )
+            raise ValueError(f"Agente sustituto {agente_sustituto} no encontrado en top agentes")
 
         # 3. Obtener informacion del agente rotado
         agente_rotado_info = None
@@ -1353,6 +1476,7 @@ class ClientAccountsService:
 
         # 4. Preparar redistribucion
         from pymongo import UpdateOne
+
         bulk_updates = []
         historial_entries = []
         fecha_rotacion = datetime.utcnow()
@@ -1362,39 +1486,37 @@ class ClientAccountsService:
             dias_con_agente = (fecha_rotacion - cuenta["fecha_asignacion_agente"]).days
 
             self.historial_col.update_one(
-                {
-                    "cuenta_id": cuenta["cuenta_id"],
-                    "agente_id": agente_rotado,
-                    "fecha_fin": None
-                },
+                {"cuenta_id": cuenta["cuenta_id"], "agente_id": agente_rotado, "fecha_fin": None},
                 {
                     "$set": {
                         "fecha_fin": fecha_rotacion,
                         "roi_agente_fin": agente_rotado_info["roi_7d"] if agente_rotado_info else 0.0,
                         "roi_cuenta_ganado": cuenta["roi_acumulado_con_agente"],
                         "balance_fin": cuenta["balance_actual"],
-                        "dias_con_agente": dias_con_agente
+                        "dias_con_agente": dias_con_agente,
                     }
-                }
+                },
             )
 
             # Crear nuevo registro en historial
-            historial_entries.append({
-                "cuenta_id": cuenta["cuenta_id"],
-                "nombre_cliente": cuenta["nombre_cliente"],
-                "agente_id": agente_sustituto,
-                "simulation_id": simulation_id,
-                "fecha_inicio": fecha_rotacion,
-                "fecha_fin": None,
-                "roi_agente_inicio": agente_sustituto_info["roi_7d"],
-                "roi_agente_fin": None,
-                "roi_cuenta_ganado": None,
-                "balance_inicio": cuenta["balance_actual"],
-                "balance_fin": None,
-                "motivo_cambio": "rotacion",
-                "dias_con_agente": None,
-                "created_at": fecha_rotacion
-            })
+            historial_entries.append(
+                {
+                    "cuenta_id": cuenta["cuenta_id"],
+                    "nombre_cliente": cuenta["nombre_cliente"],
+                    "agente_id": agente_sustituto,
+                    "simulation_id": simulation_id,
+                    "fecha_inicio": fecha_rotacion,
+                    "fecha_fin": None,
+                    "roi_agente_inicio": agente_sustituto_info["roi_7d"],
+                    "roi_agente_fin": None,
+                    "roi_cuenta_ganado": None,
+                    "balance_inicio": cuenta["balance_actual"],
+                    "balance_fin": None,
+                    "motivo_cambio": "rotacion",
+                    "dias_con_agente": None,
+                    "created_at": fecha_rotacion,
+                }
+            )
 
             # Actualizar cuenta (IMPORTANTE: mantener roi_total historico)
             bulk_updates.append(
@@ -1407,9 +1529,9 @@ class ClientAccountsService:
                             "roi_agente_al_asignar": agente_sustituto_info["roi_7d"],
                             "roi_acumulado_con_agente": 0.0,
                             "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0) + 1,
-                            "updated_at": fecha_rotacion
+                            "updated_at": fecha_rotacion,
                         }
-                    }
+                    },
                 )
             )
 
@@ -1424,27 +1546,25 @@ class ClientAccountsService:
             logger.info(f"Insertadas {len(historial_entries)} entradas de historial")
 
         # 7. Crear snapshot
-        cuentas_actualizadas = list(
-            self.cuentas_trading_col.find({"estado": "activo"})
-        )
+        cuentas_actualizadas = list(self.cuentas_trading_col.find({"estado": "activo"}))
         distribution = self._get_accounts_per_agent_summary(
             [{"agente_id": c["agente_actual"]} for c in cuentas_actualizadas]
         )
 
-        self.snapshot_col.insert_one({
-            "simulation_id": simulation_id,
-            "fecha_snapshot": fecha_rotacion,
-            "total_cuentas": len(cuentas_actualizadas),
-            "distribucion": distribution,
-            "tipo_evento": "rotacion",
-            "agente_rotado": agente_rotado,
-            "agente_sustituto": agente_sustituto,
-            "created_at": fecha_rotacion
-        })
-
-        logger.info(
-            f"Rotacion completada: {num_cuentas} cuentas movidas de {agente_rotado} a {agente_sustituto}"
+        self.snapshot_col.insert_one(
+            {
+                "simulation_id": simulation_id,
+                "fecha_snapshot": fecha_rotacion,
+                "total_cuentas": len(cuentas_actualizadas),
+                "distribucion": distribution,
+                "tipo_evento": "rotacion",
+                "agente_rotado": agente_rotado,
+                "agente_sustituto": agente_sustituto,
+                "created_at": fecha_rotacion,
+            }
         )
+
+        logger.info(f"Rotacion completada: {num_cuentas} cuentas movidas de {agente_rotado} a {agente_sustituto}")
 
         return {
             "simulation_id": simulation_id,
@@ -1454,15 +1574,11 @@ class ClientAccountsService:
             "fecha_rotacion": fecha_rotacion.isoformat(),
             "roi_agente_rotado": agente_rotado_info["roi_7d"] if agente_rotado_info else None,
             "roi_agente_sustituto": agente_sustituto_info["roi_7d"],
-            "distribucion_actual": distribution
+            "distribucion_actual": distribution,
         }
 
     def save_simulation_snapshot(
-        self,
-        simulation_id: str,
-        simulation_date: datetime,
-        window_days: int,
-        metadata: Optional[Dict[str, Any]] = None
+        self, simulation_id: str, simulation_date: datetime, window_days: int, metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Guarda un snapshot completo de la simulacion de Client Accounts.
@@ -1524,7 +1640,7 @@ class ClientAccountsService:
                         "num_cuentas": 0,
                         "balance_total": 0,
                         "roi_promedio": 0,
-                        "balances": []
+                        "balances": [],
                     }
                 distribucion_agentes[agente]["num_cuentas"] += 1
                 distribucion_agentes[agente]["balance_total"] += cuenta.get("balance_actual", 0)
@@ -1539,10 +1655,11 @@ class ClientAccountsService:
         # 8. Crear documento de snapshot
         snapshot_doc = {
             "simulation_id": simulation_id,
-            "simulation_date": simulation_date.isoformat() if hasattr(simulation_date, 'isoformat') else simulation_date,
+            "simulation_date": (
+                simulation_date.isoformat() if hasattr(simulation_date, "isoformat") else simulation_date
+            ),
             "window_days": window_days,
             "created_at": datetime.utcnow(),
-
             # Metricas agregadas
             "summary": {
                 "total_cuentas": total_cuentas,
@@ -1551,37 +1668,40 @@ class ClientAccountsService:
                 "win_rate_promedio": win_rate_promedio,
                 "total_asignaciones": len(historial),
                 "total_rebalanceos": len(rebalanceo_logs),
-                "total_snapshots_timeline": len(snapshots)
+                "total_snapshots_timeline": len(snapshots),
             },
-
             # Mejor y peor cuenta
-            "mejor_cuenta": {
-                "cuenta_id": mejor_cuenta.get("cuenta_id"),
-                "nombre_cliente": mejor_cuenta.get("nombre_cliente"),
-                "roi_total": mejor_cuenta.get("roi_total"),
-                "balance_actual": mejor_cuenta.get("balance_actual"),
-                "agente_actual": mejor_cuenta.get("agente_actual")
-            } if mejor_cuenta else None,
-
-            "peor_cuenta": {
-                "cuenta_id": peor_cuenta.get("cuenta_id"),
-                "nombre_cliente": peor_cuenta.get("nombre_cliente"),
-                "roi_total": peor_cuenta.get("roi_total"),
-                "balance_actual": peor_cuenta.get("balance_actual"),
-                "agente_actual": peor_cuenta.get("agente_actual")
-            } if peor_cuenta else None,
-
+            "mejor_cuenta": (
+                {
+                    "cuenta_id": mejor_cuenta.get("cuenta_id"),
+                    "nombre_cliente": mejor_cuenta.get("nombre_cliente"),
+                    "roi_total": mejor_cuenta.get("roi_total"),
+                    "balance_actual": mejor_cuenta.get("balance_actual"),
+                    "agente_actual": mejor_cuenta.get("agente_actual"),
+                }
+                if mejor_cuenta
+                else None
+            ),
+            "peor_cuenta": (
+                {
+                    "cuenta_id": peor_cuenta.get("cuenta_id"),
+                    "nombre_cliente": peor_cuenta.get("nombre_cliente"),
+                    "roi_total": peor_cuenta.get("roi_total"),
+                    "balance_actual": peor_cuenta.get("balance_actual"),
+                    "agente_actual": peor_cuenta.get("agente_actual"),
+                }
+                if peor_cuenta
+                else None
+            ),
             # Distribucion por agente
             "distribucion_agentes": distribucion_agentes,
-
             # Datos completos
             "cuentas": cuentas,
             "historial": historial,
             "snapshots_timeline": snapshots,
             "rebalanceo_logs": rebalanceo_logs,
-
             # Metadata adicional
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
 
         # 9. Guardar en coleccion client_accounts_simulations
@@ -1596,5 +1716,5 @@ class ClientAccountsService:
             "total_cuentas": total_cuentas,
             "balance_total": balance_total,
             "roi_promedio": roi_promedio,
-            "fecha_guardado": datetime.utcnow().isoformat()
+            "fecha_guardado": datetime.utcnow().isoformat(),
         }

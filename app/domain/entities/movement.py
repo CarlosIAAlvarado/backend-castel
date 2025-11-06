@@ -5,6 +5,7 @@ from datetime import datetime
 
 class Movement(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
+    agente_id: Optional[str] = Field(default=None, alias="agente_id")
     user: str
     user_id: str = Field(alias="userId")
     created_time: str = Field(alias="createdTime")

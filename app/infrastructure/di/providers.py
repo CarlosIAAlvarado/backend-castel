@@ -25,6 +25,7 @@ from app.infrastructure.repositories.top16_repository_impl import Top16Repositor
 from app.infrastructure.repositories.simulation_repository_impl import SimulationRepositoryImpl
 from app.infrastructure.repositories.daily_roi_repository import DailyROIRepository
 from app.infrastructure.repositories.roi_7d_repository import ROI7DRepository
+from app.infrastructure.repositories.simulation_status_repository import SimulationStatusRepository
 from app.application.services.selection_service import SelectionService
 from app.application.services.assignment_service import AssignmentService
 from app.application.services.state_classification_service import StateClassificationService
@@ -154,6 +155,21 @@ def get_roi_7d_repository(
     return ROI7DRepository(db)
 
 
+def get_simulation_status_repository(
+    db: Annotated[Database, Depends(get_database)]
+) -> SimulationStatusRepository:
+    """
+    Provider for SimulationStatusRepository.
+
+    Args:
+        db: MongoDB Database instance
+
+    Returns:
+        SimulationStatusRepository instance
+    """
+    return SimulationStatusRepository(db)
+
+
 AgentStateRepositoryDep = Annotated[AgentStateRepository, Depends(get_agent_state_repository)]
 AssignmentRepositoryDep = Annotated[AssignmentRepository, Depends(get_assignment_repository)]
 BalanceRepositoryDep = Annotated[BalanceRepository, Depends(get_balance_repository)]
@@ -164,6 +180,7 @@ SimulationRepositoryDep = Annotated[SimulationRepository, Depends(get_simulation
 DatabaseDep = Annotated[Database, Depends(get_database)]
 DailyROIRepositoryDep = Annotated[DailyROIRepository, Depends(get_daily_roi_repository)]
 ROI7DRepositoryDep = Annotated[ROI7DRepository, Depends(get_roi_7d_repository)]
+SimulationStatusRepositoryDep = Annotated[SimulationStatusRepository, Depends(get_simulation_status_repository)]
 
 
 def get_balance_query_service(
@@ -356,7 +373,6 @@ def get_movement_query_service(
     return MovementQueryService(movement_repo)
 
 
-
 def get_data_aggregation_service(
     movement_query_service: Annotated[MovementQueryService, Depends(get_movement_query_service)],
     balance_query_service: Annotated[BalanceQueryService, Depends(get_balance_query_service)]
@@ -385,8 +401,6 @@ def get_kpi_calculation_service(
         KPICalculationService with injected dependencies
     """
     return KPICalculationService(data_aggregation_service)
-
-
 
 
 KPICalculationServiceDep = Annotated[KPICalculationService, Depends(get_kpi_calculation_service)]

@@ -18,3 +18,5 @@ services:
         value: 1.0.0
       - key: DEBUG
         value: false
+      - key: CORS_ORIGINS
+        value: https://frontend-castel.vercel.app,http://localhost:4200,http://localhost:8000

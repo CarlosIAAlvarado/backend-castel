@@ -4,7 +4,6 @@ Ejecutar una sola vez para crear las colecciones con validacion de esquema.
 """
 
 import logging
-from typing import Dict, Any
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import CollectionInvalid
 

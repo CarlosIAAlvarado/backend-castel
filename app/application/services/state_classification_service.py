@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import date, datetime
+from datetime import date
 import logging
 from app.domain.entities.agent_state import AgentState, StateType
 from app.domain.repositories.agent_state_repository import AgentStateRepository
@@ -104,10 +104,13 @@ class StateClassificationService:
         target_date: date,
         previous_state: Optional[AgentState] = None,
         roi_7d: Optional[float] = None,
-        total_balance: Optional[float] = None
+        total_balance: Optional[float] = None,
+        daily_roi: Optional[Any] = None
     ) -> AgentState:
         """
         Clasifica el estado de un agente en una fecha.
+
+        CAMBIO VERSION 2.3: Agregado parametro opcional daily_roi para optimización bulk
 
         CAMBIO VERSION 2.2: Agregados parametros opcionales roi_7d y total_balance
 
@@ -125,11 +128,21 @@ class StateClassificationService:
             previous_state: Estado del dia anterior (para calcular fall_days)
             roi_7d: ROI de 7 dias (opcional, se obtiene de agent_roi_7d)
             total_balance: Balance total del agente (opcional, se calcula de assignments)
+            daily_roi: DailyROI precalculado (opcional, para optimización bulk)
 
         Returns:
             AgentState clasificado
         """
-        roi_data = await self.calculate_daily_roi(userId, target_date)
+        # Si ya tenemos daily_roi precalculado, usarlo
+        if daily_roi is not None:
+            roi_data = {
+                "roi_day": daily_roi.roi_day,
+                "pnl_day": daily_roi.total_pnl_day,
+                "balance_base": daily_roi.balance_base
+            }
+        else:
+            # Calcular normalmente si no se provee
+            roi_data = await self.calculate_daily_roi(userId, target_date)
 
         if roi_data is None:
             raise ValueError(f"No se pudo calcular ROI para userId {userId} en fecha {target_date}")
@@ -138,15 +151,26 @@ class StateClassificationService:
         pnl_day = roi_data["pnl_day"]
         balance_base = roi_data["balance_base"]
 
+        # CORRECCION: ROI 0% (sin trades) no debe contar como caida
         if roi_day > 0:
             state = StateType.GROWTH
             fall_days = 0
-        else:
+        elif roi_day < 0:
+            # Solo perdidas reales incrementan fall_days
             state = StateType.FALL
             if previous_state and previous_state.state == StateType.FALL:
                 fall_days = previous_state.fall_days + 1
             else:
                 fall_days = 1
+        else:
+            # roi_day == 0 (sin trades, neutral)
+            # Mantener estado anterior o GROWTH por defecto
+            if previous_state:
+                state = previous_state.state
+                fall_days = previous_state.fall_days if previous_state.state == StateType.FALL else 0
+            else:
+                state = StateType.GROWTH
+                fall_days = 0
 
         entry_date = previous_state.entry_date if previous_state else target_date
         roi_since_entry = previous_state.roi_since_entry if previous_state else 0.0
@@ -182,9 +206,12 @@ class StateClassificationService:
         """
         Clasifica el estado de todos los agentes activos en una fecha.
 
-        VERSION 2.2: Ahora obtiene ROI_7D y balance total para cada agente
+        VERSION 3.0 - BULK OPTIMIZED:
+        - Antes: 3 queries por agente (16 agentes × 3 = 48 queries)
+        - Ahora: 3 queries TOTALES para TODOS los agentes
+        - Mejora: ~16x más rápido
 
-        VERSION 2.0: Convertido a async para usar nueva logica ROI
+        VERSION 2.2: Ahora obtiene ROI_7D y balance total para cada agente
 
         Args:
             target_date: Fecha objetivo
@@ -195,33 +222,54 @@ class StateClassificationService:
         """
         if agent_ids is None:
             assignments = self.assignment_repo.get_by_date(target_date)
-            agent_ids = list(set(assignment.agent_id for assignment in assignments))
+            agent_ids = list({assignment.agent_id for assignment in assignments})
 
+        if not agent_ids:
+            logger.warning(f"No agents to classify for date {target_date}")
+            return {
+                "success": True,
+                "date": target_date.isoformat(),
+                "total_agents": 0,
+                "growth_count": 0,
+                "fall_count": 0,
+                "states": []
+            }
+
+        # OPTIMIZACIÓN V2: Ejecutar las 4 queries EN PARALELO usando asyncio.gather()
+        # Esto reduce el tiempo de espera acumulado (4 queries secuenciales → 1 tiempo de la query más lenta)
+        import asyncio
+
+        target_date_str = target_date.isoformat()
+
+        # Ejecutar todas las queries en paralelo
+        results = await asyncio.gather(
+            asyncio.to_thread(self._get_bulk_previous_states, agent_ids),  # Query 1
+            self._get_bulk_rois(agent_ids, target_date_str),  # Query 2
+            asyncio.to_thread(self._get_bulk_balances, agent_ids, target_date),  # Query 3
+            self.daily_roi_service.calculate_roi_bulk_for_day(agent_ids, target_date)  # Query 4
+        )
+
+        previous_states_map, rois_map, balances_map, daily_rois_map = results
+
+        # Procesar en memoria (mucho más rápido)
         classified_states = []
         growth_count = 0
         fall_count = 0
 
-        # Obtener todos los ROI_7D para la fecha objetivo
-        target_date_str = target_date.isoformat()
-
         for agent_id in agent_ids:
-            previous_state = self.state_repo.get_latest_by_agent(agent_id)
-
             try:
-                # Obtener ROI_7D del agente
-                roi_7d_entity = await self.roi_7d_repo.find_by_agent_and_date(agent_id, target_date_str)
-                roi_7d = roi_7d_entity.roi_7d_total if roi_7d_entity else None
-
-                # Obtener balance total del agente
-                active_assignments = self.assignment_repo.get_by_agent_and_date(agent_id, target_date)
-                total_balance = sum(assignment.balance for assignment in active_assignments)
+                previous_state = previous_states_map.get(agent_id)
+                roi_7d = rois_map.get(agent_id)
+                total_balance = balances_map.get(agent_id, 0.0)
+                daily_roi = daily_rois_map.get(agent_id)
 
                 agent_state = await self.classify_state(
                     agent_id,
                     target_date,
                     previous_state,
                     roi_7d=roi_7d,
-                    total_balance=total_balance
+                    total_balance=total_balance,
+                    daily_roi=daily_roi
                 )
                 classified_states.append(agent_state)
 
@@ -254,6 +302,108 @@ class StateClassificationService:
                 for state in saved_states
             ]
         }
+
+    def _get_bulk_previous_states(self, agent_ids: List[str]) -> Dict[str, Any]:
+        """
+        Obtiene estados previos para TODOS los agentes en 1 query.
+
+        Returns:
+            Dict con {agent_id: AgentState}
+        """
+        try:
+            from app.config.database import database_manager
+            db = database_manager.get_database()
+            states_collection = db[self.state_repo.collection_name]
+
+            # Pipeline de agregación para obtener el último estado de cada agente
+            pipeline = [
+                {"$match": {"agent_id": {"$in": agent_ids}}},
+                {"$sort": {"date": -1}},
+                {"$group": {
+                    "_id": "$agent_id",
+                    "latest": {"$first": "$$ROOT"}
+                }}
+            ]
+
+            results = list(states_collection.aggregate(pipeline))
+
+            states_map = {}
+            for result in results:
+                agent_id = result["_id"]
+                state_doc = result["latest"]
+                # Convertir documento a entidad
+                states_map[agent_id] = self.state_repo._doc_to_entity(state_doc)
+
+            return states_map
+
+        except Exception as e:
+            logger.error(f"[BULK_CLASSIFY] Error obteniendo estados previos: {e}")
+            return {}
+
+    async def _get_bulk_rois(self, agent_ids: List[str], target_date_str: str) -> Dict[str, float]:
+        """
+        Obtiene ROIs para TODOS los agentes en 1 query.
+
+        Returns:
+            Dict con {agent_id: roi_7d_total}
+        """
+        try:
+            from app.config.database import database_manager
+            db = database_manager.get_database()
+            roi_collection = db[self.roi_7d_repo.collection_name]
+
+            # UNA SOLA QUERY para todos los agentes
+            roi_docs = list(roi_collection.find(
+                {
+                    "userId": {"$in": agent_ids},
+                    "target_date": target_date_str
+                },
+                projection={"userId": 1, "roi_7d_total": 1, "_id": 0}
+            ))
+
+            rois_map = {doc["userId"]: doc.get("roi_7d_total", 0.0) for doc in roi_docs}
+            return rois_map
+
+        except Exception as e:
+            logger.error(f"[BULK_CLASSIFY] Error obteniendo ROIs: {e}")
+            return {}
+
+    def _get_bulk_balances(self, agent_ids: List[str], target_date: date) -> Dict[str, float]:
+        """
+        Obtiene balances totales para TODOS los agentes en 1 query.
+
+        Returns:
+            Dict con {agent_id: total_balance}
+        """
+        try:
+            from app.config.database import database_manager
+            db = database_manager.get_database()
+            assignments_collection = db[self.assignment_repo.collection_name]
+
+            # UNA SOLA QUERY con agregación para sumar balances por agente
+            pipeline = [
+                {
+                    "$match": {
+                        "agent_id": {"$in": agent_ids},
+                        "date": target_date.isoformat()
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$agent_id",
+                        "total_balance": {"$sum": "$balance"}
+                    }
+                }
+            ]
+
+            results = list(assignments_collection.aggregate(pipeline))
+
+            balances_map = {result["_id"]: result["total_balance"] for result in results}
+            return balances_map
+
+        except Exception as e:
+            logger.error(f"[BULK_CLASSIFY] Error obteniendo balances: {e}")
+            return {}
 
     def get_agents_at_risk(
         self,

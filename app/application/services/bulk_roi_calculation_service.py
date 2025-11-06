@@ -19,7 +19,7 @@ Version: 4.0 - ULTRA OPTIMIZADO + VENTANAS DINAMICAS
 """
 
 import logging
-from typing import List, Dict, Optional, Set, Tuple
+from typing import List, Dict, Optional
 from datetime import date, timedelta, datetime, time
 from collections import defaultdict
 import pytz
@@ -356,9 +356,11 @@ class BulkROICalculationService:
 
         if docs_to_insert:
             try:
-                # Usar update_one con upsert para evitar duplicados
-                for doc in docs_to_insert:
-                    agent_roi_collection.update_one(
+                # OPTIMIZACIÓN CRÍTICA: Usar bulk_write con UpdateOne + upsert en vez de bucle
+                from pymongo import UpdateOne
+
+                bulk_operations = [
+                    UpdateOne(
                         {
                             "userId": doc["userId"],
                             "target_date": doc["target_date"]
@@ -366,6 +368,13 @@ class BulkROICalculationService:
                         {"$set": doc},
                         upsert=True
                     )
-                logger.info(f"[BULK] Guardados {len(docs_to_insert)} registros en {collection_name}")
+                    for doc in docs_to_insert
+                ]
+
+                result = agent_roi_collection.bulk_write(bulk_operations, ordered=False)
+                logger.info(
+                    f"[BULK_SAVE] Guardados {len(docs_to_insert)} registros en {collection_name} "
+                    f"(inserted={result.upserted_count}, modified={result.modified_count})"
+                )
             except Exception as e:
                 logger.error(f"[BULK] Error guardando en {collection_name}: {str(e)}")

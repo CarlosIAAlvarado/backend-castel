@@ -6,6 +6,7 @@ Debe ser importado en el startup de la aplicacion (main.py o __init__.py).
 """
 
 import logging
+from typing import Optional
 from app.domain.events import (
     event_bus,
     AgentExitedEvent,
@@ -20,11 +21,12 @@ from app.domain.events import (
 )
 from app.application.event_handlers.logging_handler import LoggingEventHandler
 from app.application.event_handlers.agent_event_handlers import AgentEventHandlers
+from app.domain.repositories.rotation_log_repository import RotationLogRepository
 
 logger = logging.getLogger(__name__)
 
 
-def register_event_handlers(rotation_log_repo=None):
+def register_event_handlers(rotation_log_repo: Optional[RotationLogRepository] = None) -> None:
     """
     Registra todos los event handlers al Event Bus.
 
@@ -68,7 +70,7 @@ def register_event_handlers(rotation_log_repo=None):
     logger.debug(f"AgentRotationCompletedEvent handlers: {event_bus.get_handlers_count(AgentRotationCompletedEvent)}")
 
 
-def unregister_all_handlers():
+def unregister_all_handlers() -> None:
     """
     Elimina todos los handlers del Event Bus.
 

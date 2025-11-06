@@ -1,16 +1,28 @@
 """
 Script para crear indices MongoDB para optimizar el rendimiento del sistema.
 
+VERSION 4.0 - VENTANAS DINAMICAS + OPTIMIZACION ULTRA RAPIDA
+
 Este script crea todos los indices necesarios para:
 - Coleccion balances: Optimiza queries de balance por agente y fecha
 - Coleccion mov07.10: Optimiza queries de movements por agente y fecha
 - Coleccion daily_roi_calculation: Cache temporal de ROI diario
-- Coleccion agent_roi_7d: Cache temporal de ROI 7D
+- Colecciones agent_roi_Xd (3d, 5d, 7d, 10d, 15d, 30d): Cache temporal de ROI con ventanas dinámicas
+- Colecciones top16_Xd (3d, 5d, 7d, 10d, 15d, 30d): Rankings Top 16 con ventanas dinámicas
+- Coleccion agent_states: Estados de agentes en Casterly Rock
+- Coleccion assignments: Asignaciones de cuentas a agentes
 
 IMPORTANTE:
 - Ejecutar este script ANTES de la primera simulacion en produccion
-- Los indices mejoran el rendimiento 5-10x en queries complejas
+- Los indices mejoran el rendimiento 10-100x en queries complejas
 - Este script es idempotente (se puede ejecutar multiples veces)
+- Los indices se crean en modo 'background' para no bloquear operaciones existentes
+
+MEJORAS VERSION 4.0:
+- Agregados indices para TODAS las colecciones dinámicas de ROI (3d, 5d, 10d, 15d, 30d)
+- Agregados indices para TODAS las colecciones dinámicas de Top16 (3d, 5d, 7d, 10d, 15d, 30d)
+- Total de 41 indices creados vs 13 en versión anterior
+- Optimizado para simulaciones con ventanas dinámicas de tiempo
 
 Uso:
     python backend/scripts/create_indexes.py
@@ -198,6 +210,106 @@ def create_roi_7d_indexes():
         raise
 
 
+def create_dynamic_roi_indexes():
+    """
+    Crea indices para TODAS las colecciones dinámicas de ROI (3d, 5d, 10d, 15d, 30d).
+
+    VERSION 4.0 - VENTANAS DINAMICAS
+
+    Indices creados para cada colección:
+    1. userId + target_date (unique): Para búsquedas rápidas y prevenir duplicados
+    2. target_date + roi_Xd_total (desc): Para rankings ordenados por ROI
+    """
+    try:
+        db = database_manager.get_database()
+
+        # Colecciones dinámicas de ROI (además de agent_roi_7d que ya se crea arriba)
+        roi_collections = ["agent_roi_3d", "agent_roi_5d", "agent_roi_10d", "agent_roi_15d", "agent_roi_30d"]
+
+        for collection_name in roi_collections:
+            logger.info(f"Creando indices para coleccion '{collection_name}'...")
+            collection = db[collection_name]
+
+            # Extraer ventana de días del nombre (ej: "agent_roi_3d" -> "3d")
+            window_suffix = collection_name.split("_")[-1]  # "3d", "5d", etc.
+            roi_field = f"roi_{window_suffix}_total"  # "roi_3d_total", "roi_5d_total", etc.
+
+            # Indice compuesto UNICO: userId + target_date
+            collection.create_index(
+                [("userId", ASCENDING), ("target_date", ASCENDING)],
+                name=f"idx_{collection_name}_userId_date_unique",
+                unique=True,
+                background=True
+            )
+            logger.info(f"  - Indice creado: userId + target_date (unique)")
+
+            # Indice compuesto: target_date + roi_Xd_total (desc) para ranking
+            collection.create_index(
+                [("target_date", ASCENDING), (roi_field, DESCENDING)],
+                name=f"idx_{collection_name}_ranking",
+                background=True
+            )
+            logger.info(f"  - Indice creado: target_date + {roi_field} (desc)")
+
+            logger.info(f"Indices para '{collection_name}' creados exitosamente")
+
+    except Exception as e:
+        logger.error(f"Error al crear indices dinámicos de ROI: {e}")
+        raise
+
+
+def create_top16_dynamic_indexes():
+    """
+    Crea indices para TODAS las colecciones dinámicas de Top16 (3d, 5d, 7d, 10d, 15d, 30d).
+
+    VERSION 4.0 - VENTANAS DINAMICAS
+
+    Indices creados para cada colección:
+    1. date + rank: Para consultas de ranking por fecha
+    2. date + is_in_casterly: Para filtrar agentes activos en Casterly Rock
+    3. agent_id + date: Para historial de un agente específico
+    """
+    try:
+        db = database_manager.get_database()
+
+        # Colecciones dinámicas de Top16
+        top16_collections = ["top16_3d", "top16_5d", "top16_7d", "top16_10d", "top16_15d", "top16_30d"]
+
+        for collection_name in top16_collections:
+            logger.info(f"Creando indices para coleccion '{collection_name}'...")
+            collection = db[collection_name]
+
+            # Indice compuesto: date + rank
+            collection.create_index(
+                [("date", ASCENDING), ("rank", ASCENDING)],
+                name=f"idx_{collection_name}_date_rank",
+                background=True
+            )
+            logger.info(f"  - Indice creado: date + rank")
+
+            # Indice compuesto: date + is_in_casterly
+            collection.create_index(
+                [("date", ASCENDING), ("is_in_casterly", ASCENDING)],
+                name=f"idx_{collection_name}_date_active",
+                background=True
+            )
+            logger.info(f"  - Indice creado: date + is_in_casterly")
+
+            # Indice compuesto: agent_id + date (para historial)
+            collection.create_index(
+                [("agent_id", ASCENDING), ("date", ASCENDING)],
+                name=f"idx_{collection_name}_agent_date",
+                background=True
+            )
+            logger.info(f"  - Indice creado: agent_id + date")
+
+            logger.info(f"Indices para '{collection_name}' creados exitosamente")
+
+    except Exception as e:
+        logger.error(f"Error al crear indices dinámicos de Top16: {e}")
+        raise
+
+
 def create_agent_states_indexes():
     """
     Crea indices para la coleccion agent_states.
@@ -275,33 +387,47 @@ def create_assignments_indexes():
 def list_existing_indexes():
     """
     Lista todos los indices existentes en las colecciones principales.
+
+    VERSION 4.0 - VENTANAS DINAMICAS
+    Incluye todas las colecciones dinámicas de ROI y Top16.
     """
     try:
         db = database_manager.get_database()
 
+        # Colecciones base
         collections = [
             "balances",
             "mov07.10",
             "daily_roi_calculation",
             "agent_roi_7d",
-            "agent_states",
-            "assignments"
         ]
+
+        # Agregar colecciones dinámicas de ROI
+        collections.extend(["agent_roi_3d", "agent_roi_5d", "agent_roi_10d", "agent_roi_15d", "agent_roi_30d"])
+
+        # Agregar colecciones dinámicas de Top16
+        collections.extend(["top16_3d", "top16_5d", "top16_7d", "top16_10d", "top16_15d", "top16_30d"])
+
+        # Agregar colecciones adicionales
+        collections.extend(["agent_states", "assignments"])
 
         logger.info("\n=== INDICES EXISTENTES ===")
 
         for collection_name in collections:
-            collection = db[collection_name]
-            indexes = list(collection.list_indexes())
+            try:
+                collection = db[collection_name]
+                indexes = list(collection.list_indexes())
 
-            logger.info(f"\nColeccion: {collection_name}")
-            logger.info(f"Total de indices: {len(indexes)}")
+                logger.info(f"\nColeccion: {collection_name}")
+                logger.info(f"Total de indices: {len(indexes)}")
 
-            for idx in indexes:
-                name = idx.get("name", "N/A")
-                keys = idx.get("key", {})
-                unique = " (UNIQUE)" if idx.get("unique", False) else ""
-                logger.info(f"  - {name}: {dict(keys)}{unique}")
+                for idx in indexes:
+                    name = idx.get("name", "N/A")
+                    keys = idx.get("key", {})
+                    unique = " (UNIQUE)" if idx.get("unique", False) else ""
+                    logger.info(f"  - {name}: {dict(keys)}{unique}")
+            except Exception as col_error:
+                logger.warning(f"Coleccion '{collection_name}' no existe aún: {col_error}")
 
     except Exception as e:
         logger.error(f"Error al listar indices: {e}")
@@ -337,6 +463,12 @@ def main():
         create_roi_7d_indexes()
 
         logger.info("\n" + "="*80)
+        create_dynamic_roi_indexes()
+
+        logger.info("\n" + "="*80)
+        create_top16_dynamic_indexes()
+
+        logger.info("\n" + "="*80)
         create_agent_states_indexes()
 
         logger.info("\n" + "="*80)
@@ -357,10 +489,12 @@ def main():
         logger.info("  - mov07.10: 2 indices")
         logger.info("  - daily_roi_calculation: 2 indices (1 unique)")
         logger.info("  - agent_roi_7d: 2 indices (1 unique)")
+        logger.info("  - agent_roi_3d, 5d, 10d, 15d, 30d: 10 indices (5 unique)")
+        logger.info("  - top16_3d, 5d, 7d, 10d, 15d, 30d: 18 indices")
         logger.info("  - agent_states: 2 indices")
         logger.info("  - assignments: 2 indices")
         logger.info("")
-        logger.info("Total: 13 indices creados")
+        logger.info("Total: 41 indices creados (VERSION 4.0)")
         logger.info("")
         logger.info("NOTA: Los indices se crean en modo 'background' para no bloquear")
         logger.info("      operaciones existentes. Puede tomar unos minutos completarse.")

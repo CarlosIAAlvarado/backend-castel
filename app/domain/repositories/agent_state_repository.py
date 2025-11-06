@@ -253,4 +253,3 @@ class AgentStateRepository(ABC):
             >>> assert updated.is_in_casterly == False
         """
         pass
-

@@ -1,5 +1,5 @@
-from typing import List, Dict, Any, Optional
-from datetime import date, datetime, timedelta
+from typing import Dict, Any, Optional
+from datetime import date, timedelta
 import logging
 from app.application.services.selection_service import SelectionService
 from app.application.services.assignment_service import AssignmentService
@@ -7,6 +7,7 @@ from app.application.services.state_classification_service import StateClassific
 from app.application.services.exit_rules_service import ExitRulesService
 from app.application.services.replacement_service import ReplacementService
 from app.application.services.client_accounts_simulation_service import ClientAccountsSimulationService
+from app.application.services.simulation_response_builder import SimulationResponseBuilder
 from app.domain.repositories.agent_state_repository import AgentStateRepository
 from app.infrastructure.repositories.daily_roi_repository import DailyROIRepository
 from app.infrastructure.repositories.roi_7d_repository import ROI7DRepository
@@ -108,7 +109,7 @@ class DailyOrchestratorService:
 
         logger.info(f"Top 16 selected: {len(casterly_agent_ids)} agents")
 
-        top16_saved = self.selection_service.save_top16_to_database(
+        self.selection_service.save_top16_to_database(
             target_date, top16, casterly_agent_ids
         )
 
@@ -204,51 +205,26 @@ class DailyOrchestratorService:
 
         return result
 
-    async def process_daily(
-        self,
-        target_date: date,
-        update_client_accounts: bool = False,
-        simulation_id: Optional[str] = None,
-        window_days: int = 7,
-        dry_run: bool = False
-    ) -> Dict[str, Any]:
+    def _get_current_casterly_agents(self, target_date: date) -> list[str]:
         """
-        Procesa un dia normal de simulacion (02-Sep en adelante).
-
-        VERSION 3.0: Integrado con sincronizacion de Client Accounts
-
-        Pasos:
-        1. Calcular ROI diario y clasificar estados (nueva logica)
-        2. Guardar Top 16 del dia
-        3. Evaluar reglas de salida
-        4. Ejecutar rotaciones si es necesario
-        5. Actualizar lista de Casterly activos
-        6. (NUEVO) Sincronizar cuentas de clientes si update_client_accounts=True
-
-        Args:
-            target_date: Fecha del dia a procesar
-            update_client_accounts: Si True, sincroniza cuentas de clientes. Default: False
-            simulation_id: ID de la simulacion (requerido si update_client_accounts=True)
-            window_days: Ventana de días para ROI (3, 5, 7, 10, 15, 30). Default: 7
-            dry_run: Si True, simula cambios sin guardar. Default: False
+        Obtiene la lista de agentes activos en Casterly.
 
         Returns:
-            Diccionario con resultado del dia
+            Lista de agent_ids activos
         """
-        logger.info(f"Processing daily: {target_date}")
-
         states = self.state_repo.get_by_date(target_date - timedelta(days=1))
         current_casterly_agents = list(
-            set([state.agent_id for state in states if state.is_in_casterly])
+            {state.agent_id for state in states if state.is_in_casterly}
         )
+        return current_casterly_agents
 
-        if not current_casterly_agents:
-            logger.warning(f"No active agents in Casterly for {target_date}")
-            return {
-                "success": False,
-                "message": f"No hay agentes activos en Casterly para la fecha {target_date}",
-            }
+    def _get_top30_candidates(self, target_date: date) -> list[str]:
+        """
+        Obtiene candidatos del Top 30 del día anterior.
 
+        Returns:
+            Lista de agent_ids candidatos
+        """
         previous_top16 = self.selection_service.get_top16_by_date(
             target_date - timedelta(days=1)
         )
@@ -260,12 +236,24 @@ class DailyOrchestratorService:
             )
         else:
             top30_candidates = []
+        return top30_candidates
 
-        relevant_agents = list(set(current_casterly_agents + top30_candidates))
+    async def _calculate_and_save_top16(
+        self,
+        target_date: date,
+        relevant_agents: list[str],
+        current_casterly_agents: list[str],
+        window_days: int
+    ) -> list[Dict[str, Any]]:
+        """
+        Calcula ROI, rankea agentes y guarda Top 16.
 
+        Returns:
+            Lista de agentes del Top 16
+        """
         logger.debug(
             f"Calculating ROI for {len(relevant_agents)} relevant agents "
-            f"({len(current_casterly_agents)} active + {len(top30_candidates)} candidates)"
+            f"({len(current_casterly_agents)} active + candidates)"
         )
 
         # USA VERSION ULTRA RAPIDA
@@ -276,15 +264,23 @@ class DailyOrchestratorService:
         ranked_agents = self.selection_service.rank_agents_by_roi_7d(agents_data, window_days=window_days)
         top16 = ranked_agents[:16]
 
-        top16_saved = self.selection_service.save_top16_to_database(
+        self.selection_service.save_top16_to_database(
             target_date, top16, current_casterly_agents
         )
 
-        classification_result = await self.state_service.classify_all_agents(
-            target_date,
-            current_casterly_agents
-        )
+        return top16
 
+    async def _process_rotations(
+        self,
+        target_date: date,
+        current_casterly_agents: list[str]
+    ) -> tuple[list[Dict[str, Any]], list[str]]:
+        """
+        Evalúa reglas de salida y ejecuta rotaciones necesarias.
+
+        Returns:
+            tuple: (rotations_executed, new_agents_to_classify)
+        """
         evaluation_result = self.exit_rules_service.evaluate_all_agents(
             target_date,
             fall_threshold=3,
@@ -360,93 +356,196 @@ class DailyOrchestratorService:
                     current_casterly_agents.append(agent_in)
                     new_agents_to_classify.append(agent_in)
 
+        return rotations_executed, new_agents_to_classify
+
+    async def _sync_client_accounts(
+        self,
+        target_date: date,
+        update_client_accounts: bool,
+        simulation_id: Optional[str],
+        window_days: int,
+        dry_run: bool
+    ) -> Optional[Any]:
+        """
+        Sincroniza cuentas de clientes si está habilitado.
+
+        Returns:
+            Resultado de sincronización o None
+        """
+        if not update_client_accounts:
+            return None
+
+        if not self.client_accounts_sync:
+            logger.warning("update_client_accounts=True pero ClientAccountsSimulationService no esta configurado")
+            return None
+
+        if not simulation_id:
+            logger.warning("update_client_accounts=True pero simulation_id no proporcionado. Saltando sincronizacion.")
+            return None
+
+        try:
+            logger.info("=== SINCRONIZANDO CUENTAS DE CLIENTES ===")
+
+            client_accounts_result = await self.client_accounts_sync.sync_with_simulation_day(
+                target_date=target_date,
+                simulation_id=simulation_id,
+                window_days=window_days,
+                dry_run=dry_run
+            )
+
+            logger.info(
+                f"Sincronizacion de cuentas completada:"
+                f"\n  Cuentas actualizadas: {client_accounts_result.cuentas_actualizadas}"
+                f"\n  Cuentas redistribuidas: {client_accounts_result.cuentas_redistribuidas}"
+                f"\n  Rotaciones procesadas: {client_accounts_result.rotaciones_procesadas}"
+                f"\n  Balance: ${client_accounts_result.balance_total_antes:,.2f} -> ${client_accounts_result.balance_total_despues:,.2f}"
+                f"\n  ROI promedio: {client_accounts_result.roi_promedio_antes:.2f}% -> {client_accounts_result.roi_promedio_despues:.2f}%"
+            )
+
+            return client_accounts_result
+
+        except Exception as e:
+            logger.error(f"Error en sincronizacion de cuentas de clientes: {e}", exc_info=True)
+            return {
+                "error": str(e),
+                "success": False
+            }
+
+    def _build_response_data(
+        self,
+        target_date: date,
+        top16: list[Dict[str, Any]],
+        current_casterly_agents: list[str],
+        classification_result: Dict[str, Any],
+        evaluation_result: Dict[str, Any],
+        rotations_executed: list[Dict[str, Any]],
+        client_accounts_result: Optional[Any],
+        window_days: int
+    ) -> Dict[str, Any]:
+        """
+        Construye el diccionario de respuesta final usando SimulationResponseBuilder (SRP).
+
+        SOLID Improvement: Delegado a SimulationResponseBuilder para separar
+        la responsabilidad de construcción de respuestas.
+
+        Returns:
+            Diccionario con todos los resultados del día
+        """
+        return SimulationResponseBuilder.build_daily_response(
+            target_date=target_date,
+            top16=top16,
+            current_casterly_agents=current_casterly_agents,
+            classification_result=classification_result,
+            evaluation_result=evaluation_result,
+            rotations_executed=rotations_executed,
+            client_accounts_result=client_accounts_result,
+            window_days=window_days
+        )
+
+    async def process_daily(
+        self,
+        target_date: date,
+        update_client_accounts: bool = False,
+        simulation_id: Optional[str] = None,
+        window_days: int = 7,
+        dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Procesa un dia normal de simulacion (02-Sep en adelante).
+
+        VERSION 3.0: Integrado con sincronizacion de Client Accounts
+        Esta función ha sido refactorizada para reducir complejidad (16 -> ~8).
+
+        Pasos:
+        1. Calcular ROI diario y clasificar estados (nueva logica)
+        2. Guardar Top 16 del dia
+        3. Evaluar reglas de salida
+        4. Ejecutar rotaciones si es necesario
+        5. Actualizar lista de Casterly activos
+        6. (NUEVO) Sincronizar cuentas de clientes si update_client_accounts=True
+
+        Args:
+            target_date: Fecha del dia a procesar
+            update_client_accounts: Si True, sincroniza cuentas de clientes. Default: False
+            simulation_id: ID de la simulacion (requerido si update_client_accounts=True)
+            window_days: Ventana de días para ROI (3, 5, 7, 10, 15, 30). Default: 7
+            dry_run: Si True, simula cambios sin guardar. Default: False
+
+        Returns:
+            Diccionario con resultado del dia
+        """
+        logger.info(f"Processing daily: {target_date}")
+
+        # 1. Obtener agentes activos en Casterly
+        current_casterly_agents = self._get_current_casterly_agents(target_date)
+
+        if not current_casterly_agents:
+            logger.warning(f"No active agents in Casterly for {target_date}")
+            return {
+                "success": False,
+                "message": f"No hay agentes activos en Casterly para la fecha {target_date}",
+            }
+
+        # 2. Obtener candidatos del Top 30 del día anterior
+        top30_candidates = self._get_top30_candidates(target_date)
+
+        # 3. Combinar agentes activos + candidatos
+        relevant_agents = list(set(current_casterly_agents + top30_candidates))
+
+        # 4. Calcular ROI, rankear y guardar Top 16
+        top16 = await self._calculate_and_save_top16(
+            target_date,
+            relevant_agents,
+            current_casterly_agents,
+            window_days
+        )
+
+        # 5. Clasificar estados de todos los agentes activos
+        classification_result = await self.state_service.classify_all_agents(
+            target_date,
+            current_casterly_agents
+        )
+
+        # 6. Procesar rotaciones (evaluar + ejecutar)
+        rotations_executed, new_agents_to_classify = await self._process_rotations(
+            target_date,
+            current_casterly_agents
+        )
+
+        # 7. Clasificar nuevos agentes que entraron por rotación
         if new_agents_to_classify:
-            new_agents_classification = await self.state_service.classify_all_agents(
+            await self.state_service.classify_all_agents(
                 target_date,
                 new_agents_to_classify
             )
 
-        # NUEVO: Sincronizar cuentas de clientes
-        client_accounts_result = None
-        if update_client_accounts and self.client_accounts_sync:
-            if not simulation_id:
-                logger.warning("update_client_accounts=True pero simulation_id no proporcionado. Saltando sincronizacion.")
-            else:
-                try:
-                    logger.info("=== SINCRONIZANDO CUENTAS DE CLIENTES ===")
+        # 8. Sincronizar cuentas de clientes (si está habilitado)
+        client_accounts_result = await self._sync_client_accounts(
+            target_date,
+            update_client_accounts,
+            simulation_id,
+            window_days,
+            dry_run
+        )
 
-                    client_accounts_result = await self.client_accounts_sync.sync_with_simulation_day(
-                        target_date=target_date,
-                        simulation_id=simulation_id,
-                        window_days=window_days,
-                        dry_run=dry_run
-                    )
+        # 9. Construir respuesta con todos los datos del día
+        # Necesitamos volver a obtener evaluation_result para la respuesta
+        evaluation_result = self.exit_rules_service.evaluate_all_agents(
+            target_date,
+            fall_threshold=3,
+            stop_loss_threshold=-0.10
+        )
 
-                    logger.info(
-                        f"Sincronizacion de cuentas completada:"
-                        f"\n  Cuentas actualizadas: {client_accounts_result.cuentas_actualizadas}"
-                        f"\n  Cuentas redistribuidas: {client_accounts_result.cuentas_redistribuidas}"
-                        f"\n  Rotaciones procesadas: {client_accounts_result.rotaciones_procesadas}"
-                        f"\n  Balance: ${client_accounts_result.balance_total_antes:,.2f} -> ${client_accounts_result.balance_total_despues:,.2f}"
-                        f"\n  ROI promedio: {client_accounts_result.roi_promedio_antes:.2f}% -> {client_accounts_result.roi_promedio_despues:.2f}%"
-                    )
-
-                except Exception as e:
-                    logger.error(f"Error en sincronizacion de cuentas de clientes: {e}", exc_info=True)
-                    client_accounts_result = {
-                        "error": str(e),
-                        "success": False
-                    }
-        elif update_client_accounts and not self.client_accounts_sync:
-            logger.warning("update_client_accounts=True pero ClientAccountsSimulationService no esta configurado")
-
-        # Preparar datos completos del Top 16 con ROI
-        # IMPORTANTE: Usar campo dinamico basado en window_days (roi_3d, roi_7d, roi_30d, etc.)
-        roi_field = f"roi_{window_days}d"
-        top_16_with_data = [
-            {
-                "userId": agent["userId"],
-                "roi_7d": agent.get(roi_field, 0.0),  # Mantener nombre "roi_7d" para compatibilidad con frontend
-                "total_pnl": agent.get("total_pnl", 0.0),
-                "balance": agent.get("balance_current", 0.0),
-                "total_trades_7d": agent.get("total_trades_7d", 0),
-                "rank": agent.get("rank", idx + 1)
-            }
-            for idx, agent in enumerate(top16)
-        ]
-
-        result = {
-            "success": True,
-            "date": target_date.isoformat(),
-            "phase": "daily_processing",
-            "top_16_data": top_16_with_data,
-            "active_agents": len(current_casterly_agents),
-            "states_classified": classification_result["total_agents"],
-            "growth_count": classification_result["growth_count"],
-            "fall_count": classification_result["fall_count"],
-            "agents_evaluated": evaluation_result["total_active_agents"],
-            "agents_exited": len(agents_to_exit),
-            "rotations_executed": len(rotations_executed),
-            "rotations_detail": rotations_executed,
-            "current_casterly_agents": current_casterly_agents
-        }
-
-        # Agregar resultado de sincronizacion si existe
-        if client_accounts_result:
-            if isinstance(client_accounts_result, dict):
-                result["client_accounts_sync"] = client_accounts_result
-            else:
-                result["client_accounts_sync"] = {
-                    "success": True,
-                    "cuentas_actualizadas": client_accounts_result.cuentas_actualizadas,
-                    "cuentas_redistribuidas": client_accounts_result.cuentas_redistribuidas,
-                    "rotaciones_procesadas": client_accounts_result.rotaciones_procesadas,
-                    "snapshot_id": client_accounts_result.snapshot_id,
-                    "balance_total_antes": client_accounts_result.balance_total_antes,
-                    "balance_total_despues": client_accounts_result.balance_total_despues,
-                    "roi_promedio_antes": client_accounts_result.roi_promedio_antes,
-                    "roi_promedio_despues": client_accounts_result.roi_promedio_despues
-                }
+        result = self._build_response_data(
+            target_date,
+            top16,
+            current_casterly_agents,
+            classification_result,
+            evaluation_result,
+            rotations_executed,
+            client_accounts_result,
+            window_days
+        )
 
         return result
 
@@ -486,8 +585,8 @@ class DailyOrchestratorService:
             Diccionario con resultado del calculo
         """
         logger.info(f"=== PROCESANDO FECHA UNICA: {target_date} (VENTANA {window_days}D) ===")
-        print(f"[DEBUG_ORCHESTRATOR] update_client_accounts={update_client_accounts}, simulation_id={simulation_id}")
-        print(f"[DEBUG_ORCHESTRATOR] self.client_accounts_sync={'presente' if self.client_accounts_sync else 'None'}")
+        logger.debug(f"[DEBUG_ORCHESTRATOR] update_client_accounts={update_client_accounts}, simulation_id={simulation_id}")
+        logger.debug(f"[DEBUG_ORCHESTRATOR] self.client_accounts_sync={'presente' if self.client_accounts_sync else 'None'}")
 
         deleted_daily = 0
         deleted_7d = 0
@@ -509,20 +608,24 @@ class DailyOrchestratorService:
         logger.info(f"Top 16 seleccionados: {len(casterly_agent_ids)} agentes")
 
         # PASO 3: Guardar Top 16 en base de datos
-        top16_saved = self.selection_service.save_top16_to_database(
+        self.selection_service.save_top16_to_database(
             target_date, top16, casterly_agent_ids, window_days=window_days
         )
 
-        # PASO 4: Asignar cuentas
-        logger.info("Asignando cuentas a Top 16...")
-        assignment_result = self.assignment_service.create_initial_assignments(
+        # PASOS 4 y 5: Ejecutar EN PARALELO (son independientes)
+        import asyncio
+
+        assignment_task = asyncio.to_thread(
+            self.assignment_service.create_initial_assignments,
+            target_date, casterly_agent_ids
+        )
+        classification_task = self.state_service.classify_all_agents(
             target_date, casterly_agent_ids
         )
 
-        # PASO 5: Clasificar estados
-        logger.info("Clasificando estados de agentes...")
-        classification_result = await self.state_service.classify_all_agents(
-            target_date, casterly_agent_ids
+        assignment_result, classification_result = await asyncio.gather(
+            assignment_task,
+            classification_task
         )
 
         logger.info(
@@ -532,15 +635,15 @@ class DailyOrchestratorService:
 
         # PASO 6: (NUEVO) Sincronizar cuentas de clientes
         client_accounts_result = None
-        print(f"[DEBUG_SYNC] Verificando condicion: update_client_accounts={update_client_accounts}, self.client_accounts_sync={self.client_accounts_sync is not None}")
+        logger.debug(f"[DEBUG_SYNC] Verificando condicion: update_client_accounts={update_client_accounts}, self.client_accounts_sync={self.client_accounts_sync is not None}")
         if update_client_accounts and self.client_accounts_sync:
-            print(f"[DEBUG_SYNC] Condicion CUMPLIDA - verificando simulation_id={simulation_id}")
+            logger.debug(f"[DEBUG_SYNC] Condicion CUMPLIDA - verificando simulation_id={simulation_id}")
             if not simulation_id:
-                print("[DEBUG_SYNC] NO HAY simulation_id - saltando")
+                logger.debug("[DEBUG_SYNC] NO HAY simulation_id - saltando")
                 logger.warning("update_client_accounts=True pero simulation_id no proporcionado. Saltando sincronizacion.")
             else:
                 try:
-                    print(f"[DEBUG_SYNC] INICIANDO SYNC - fecha={target_date}, window_days={window_days}")
+                    logger.debug(f"[DEBUG_SYNC] INICIANDO SYNC - fecha={target_date}, window_days={window_days}")
                     logger.info("=== SINCRONIZANDO CUENTAS DE CLIENTES ===")
 
                     client_accounts_result = await self.client_accounts_sync.sync_with_simulation_day(
@@ -567,10 +670,10 @@ class DailyOrchestratorService:
                         "success": False
                     }
         elif update_client_accounts and not self.client_accounts_sync:
-            print("[DEBUG_SYNC] update_client_accounts=True PERO self.client_accounts_sync es None!")
+            logger.debug("[DEBUG_SYNC] update_client_accounts=True PERO self.client_accounts_sync es None!")
             logger.warning("update_client_accounts=True pero ClientAccountsSimulationService no esta configurado")
         else:
-            print(f"[DEBUG_SYNC] Condicion NO cumplida - update_client_accounts={update_client_accounts}")
+            logger.debug(f"[DEBUG_SYNC] Condicion NO cumplida - update_client_accounts={update_client_accounts}")
 
         # Preparar datos completos del Top 16 con ROI
         # IMPORTANTE: Usar campo dinamico basado en window_days (roi_3d, roi_7d, roi_30d, etc.)
@@ -587,7 +690,7 @@ class DailyOrchestratorService:
             for idx, agent in enumerate(top16)
         ]
 
-        logger.info(f"=== PROCESAMIENTO COMPLETADO ===")
+        logger.info("=== PROCESAMIENTO COMPLETADO ===")
 
         result = {
             "success": True,

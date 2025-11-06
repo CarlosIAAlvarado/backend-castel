@@ -6,13 +6,16 @@ Ejecutar con: python main.py
 if __name__ == "__main__":
     import uvicorn
     from app.config.settings import settings
+    from app.infrastructure.config.console_logger import ConsoleLogger as log
 
-    print(f"[INICIO] Iniciando servidor FastAPI...")
-    print(f"[INFO] Host: {settings.host}")
-    print(f"[INFO] Puerto: {settings.port}")
-    print(f"[INFO] Base de datos: {settings.database_name}")
-    print(f"[INFO] Modo reload: {settings.reload}")
-    print(f"[INFO] Accede a http://{settings.host}:{settings.port}/docs para ver la documentacion API")
+    log.separator("=", 80)
+    log.success("Iniciando servidor FastAPI", context="[STARTUP]")
+    log.info(f"Host: {settings.host}", context="[CONFIG]")
+    log.info(f"Puerto: {settings.port}", context="[CONFIG]")
+    log.info(f"Base de datos: {settings.database_name}", context="[CONFIG]")
+    log.info(f"Modo reload: {settings.reload}", context="[CONFIG]")
+    log.info(f"Documentación API: http://{settings.host}:{settings.port}/docs", context="[CONFIG]")
+    log.separator("=", 80)
 
     uvicorn.run(
         "app.main:app",

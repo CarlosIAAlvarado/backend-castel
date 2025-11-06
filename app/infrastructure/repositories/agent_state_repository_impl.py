@@ -1,6 +1,5 @@
 from typing import List, Optional
-from datetime import date, datetime, timedelta
-from bson import ObjectId
+from datetime import date, datetime
 from app.domain.repositories.agent_state_repository import AgentStateRepository
 from app.domain.repositories.agent_state_queries import AgentStateFallQueries
 from app.domain.entities.agent_state import AgentState

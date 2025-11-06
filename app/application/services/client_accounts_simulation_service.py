@@ -14,7 +14,7 @@ Responsabilidades:
 
 import logging
 from datetime import date, datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pymongo.database import Database
 
 from app.domain.entities.client_accounts_sync_result import (
@@ -24,11 +24,6 @@ from app.domain.entities.client_accounts_sync_result import (
     SnapshotResult,
     RedistributionResult,
     Rotation
-)
-from app.domain.entities.client_account_snapshot import (
-    ClientAccountSnapshot,
-    AgentDistribution,
-    CuentaEstado
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +52,238 @@ class ClientAccountsSimulationService:
         self.snapshots_col = db.client_accounts_snapshots
         self.logger = logging.getLogger(__name__)
 
+    async def _check_and_handle_first_day(
+        self,
+        target_date: date,
+        simulation_id: str,
+        top16_agents: List[Dict[str, Any]],
+        window_days: int,
+        dry_run: bool
+    ) -> tuple[bool, int, int]:
+        """
+        Detecta y maneja el primer día de simulación.
+
+        Args:
+            target_date: Fecha de simulación
+            simulation_id: ID de simulación
+            top16_agents: Lista de agentes Top 16
+            window_days: Ventana de días
+            dry_run: Modo simulación
+
+        Returns:
+            Tupla de (es_primer_dia, cuentas_redistribuidas, rotaciones_procesadas)
+        """
+        cuentas_sin_agente = self.cuentas_col.count_documents({"agente_actual": "PENDING"})
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Cuentas sin agente (PENDING): {cuentas_sin_agente}")
+
+        if cuentas_sin_agente == 0:
+            return False, 0, 0
+
+        if dry_run:
+            return True, 0, 0
+
+        logger.info("[CLIENT_ACCOUNTS_SYNC] PRIMER DIA - Redistribuyendo TODAS las cuentas al Top16")
+        self.logger.info("Primer dia detectado - redistribuyendo todas las cuentas al Top16")
+
+        # Obtener cuentas PENDING
+        todas_cuentas = list(self.cuentas_col.find({"agente_actual": "PENDING", "estado": "activo"}))
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Total cuentas PENDING: {len(todas_cuentas)}")
+
+        if not todas_cuentas:
+            return True, 0, 0
+
+        # Generar operaciones bulk
+        bulk_updates, historial_entries = self._generate_first_day_bulk_ops(
+            todas_cuentas, top16_agents, target_date, simulation_id, window_days
+        )
+
+        # Ejecutar operaciones
+        if bulk_updates:
+            result = self.cuentas_col.bulk_write(bulk_updates)
+            logger.info(f"[CLIENT_ACCOUNTS_SYNC] Cuentas actualizadas: {result.modified_count}")
+
+        if historial_entries:
+            self.historial_col.insert_many(historial_entries)
+            logger.info(f"[CLIENT_ACCOUNTS_SYNC] Historial creado: {len(historial_entries)} entradas")
+
+        return True, len(bulk_updates), 0
+
+    def _generate_first_day_bulk_ops(
+        self,
+        todas_cuentas: List[Dict[str, Any]],
+        top16_agents: List[Dict[str, Any]],
+        target_date: date,
+        simulation_id: str,
+        window_days: int
+    ) -> tuple[List, List]:
+        """
+        Genera operaciones bulk para el primer día de simulación.
+
+        Args:
+            todas_cuentas: Lista de cuentas PENDING
+            top16_agents: Lista de agentes Top 16
+            target_date: Fecha de simulación
+            simulation_id: ID de simulación
+            window_days: Ventana de días
+
+        Returns:
+            Tupla de (bulk_updates, historial_entries)
+        """
+        from pymongo import UpdateOne
+        from datetime import datetime
+
+        # Calcular distribución
+        total_cuentas = len(todas_cuentas)
+        num_agents = len(top16_agents)
+        cuentas_por_agente = total_cuentas // num_agents
+        cuentas_restantes = total_cuentas % num_agents
+
+        # Obtener ROIs de agentes
+        agents_roi_map = {}
+        roi_field = f"roi_{window_days}d"
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Obteniendo ROIs de agentes (campo: {roi_field})")
+
+        for agent in top16_agents:
+            agent_id = agent["agent_id"]
+            roi_decimal = agent.get(roi_field, 0.0)
+            roi_percent = roi_decimal * 100
+            agents_roi_map[agent_id] = roi_percent
+            logger.info(f"[CLIENT_ACCOUNTS_SYNC]   {agent_id}: {roi_decimal} -> {roi_percent}%")
+
+        # Generar operaciones
+        bulk_updates = []
+        historial_entries = []
+        cuenta_idx = 0
+        fecha_asignacion = datetime.combine(target_date, datetime.min.time())
+
+        for agent_idx, agent in enumerate(top16_agents):
+            agent_id = agent["agent_id"]
+            roi_agente = agents_roi_map.get(agent_id, 0.0)
+
+            num_cuentas = cuentas_por_agente
+            if agent_idx < cuentas_restantes:
+                num_cuentas += 1
+
+            for _ in range(num_cuentas):
+                if cuenta_idx >= len(todas_cuentas):
+                    break
+
+                cuenta = todas_cuentas[cuenta_idx]
+                cuenta_id = cuenta["cuenta_id"]
+
+                bulk_updates.append(
+                    UpdateOne(
+                        {"_id": cuenta["_id"]},
+                        {
+                            "$set": {
+                                "agente_actual": agent_id,
+                                "fecha_asignacion_agente": fecha_asignacion,
+                                "roi_agente_al_asignar": roi_agente,
+                                "roi_acumulado_con_agente": 0.0,
+                                "roi_historico_anterior": 0.0,
+                                "updated_at": fecha_asignacion
+                            }
+                        }
+                    )
+                )
+
+                historial_entries.append({
+                    "cuenta_id": cuenta_id,
+                    "nombre_cliente": cuenta["nombre_cliente"],
+                    "agente_id": agent_id,
+                    "simulation_id": simulation_id,
+                    "fecha_inicio": fecha_asignacion,
+                    "fecha_fin": None,
+                    "roi_agente_inicio": roi_agente,
+                    "roi_agente_fin": None,
+                    "roi_cuenta_ganado": None,
+                    "balance_inicio": cuenta["balance_inicial"],
+                    "balance_fin": None,
+                    "motivo_cambio": "inicial",
+                    "dias_con_agente": None,
+                    "created_at": fecha_asignacion
+                })
+
+                cuenta_idx += 1
+
+        return bulk_updates, historial_entries
+
+    async def _handle_rotations_if_needed(
+        self,
+        es_primer_dia: bool,
+        target_date: date,
+        simulation_id: str,
+        top16_agents: List[Dict[str, Any]],
+        window_days: int,
+        dry_run: bool
+    ) -> tuple[int, int]:
+        """
+        Detecta y maneja rotaciones si no es el primer día.
+
+        Args:
+            es_primer_dia: Si es el primer día
+            target_date: Fecha de simulación
+            simulation_id: ID de simulación
+            top16_agents: Lista de agentes Top 16
+            window_days: Ventana de días
+            dry_run: Modo simulación
+
+        Returns:
+            Tupla de (cuentas_redistribuidas, rotaciones_procesadas)
+        """
+        if es_primer_dia:
+            return 0, 0
+
+        rotations = await self._detect_rotations(target_date, top16_agents, window_days)
+
+        if not rotations or dry_run:
+            return 0, 0
+
+        rotation_result = await self.handle_rotations(
+            rotations,
+            target_date,
+            simulation_id,
+            window_days
+        )
+
+        return rotation_result.cuentas_redistribuidas, rotation_result.rotaciones_procesadas
+
+    async def _update_roi_and_save_snapshot(
+        self,
+        target_date: date,
+        simulation_id: str,
+        window_days: int,
+        dry_run: bool
+    ) -> tuple[int, Optional[str]]:
+        """
+        Actualiza ROI de cuentas y guarda snapshot diario.
+
+        Args:
+            target_date: Fecha de simulación
+            simulation_id: ID de simulación
+            window_days: Ventana de días
+            dry_run: Modo simulación
+
+        Returns:
+            Tupla de (cuentas_actualizadas, snapshot_id)
+        """
+        update_result = await self.update_all_accounts_roi(
+            target_date,
+            window_days,
+            dry_run=dry_run
+        )
+        cuentas_actualizadas = update_result.cuentas_actualizadas
+
+        snapshot_id = None
+        if not dry_run:
+            snapshot_result = await self.save_daily_snapshot(
+                target_date,
+                simulation_id
+            )
+            snapshot_id = snapshot_result.snapshot_id
+
+        return cuentas_actualizadas, snapshot_id
+
     async def sync_with_simulation_day(
         self,
         target_date: date,
@@ -67,16 +294,20 @@ class ClientAccountsSimulationService:
         """
         Sincroniza las cuentas con el estado de la simulacion para un dia.
 
-        Este es el metodo principal que coordina todo el proceso de sincronizacion.
+        Este metodo ha sido refactorizado para reducir complejidad (13 -> ~7).
+        Secciones extraídas:
+        1. _check_and_handle_first_day: Detecta y maneja primer día
+        2. _generate_first_day_bulk_ops: Genera operaciones del primer día
+        3. _handle_rotations_if_needed: Maneja rotaciones si no es primer día
+        4. _update_roi_and_save_snapshot: Actualiza ROI y guarda snapshot
 
         Pasos:
         1. Obtener estadisticas pre-sincronizacion
         2. Obtener Top 16 del dia
-        3. Detectar rotaciones
-        4. Manejar rotaciones si existen
-        5. Actualizar ROI de todas las cuentas
-        6. Guardar snapshot diario
-        7. Obtener estadisticas post-sincronizacion
+        3. Detectar y manejar primer día O rotaciones
+        4. Actualizar ROI de todas las cuentas
+        5. Guardar snapshot diario
+        6. Obtener estadisticas post-sincronizacion
 
         Args:
             target_date: Fecha del dia de simulacion
@@ -95,10 +326,10 @@ class ClientAccountsSimulationService:
             f"\n  Dry Run: {dry_run}"
         )
 
-        # 1. Estadisticas PRE-sincronizacion
+        # 1. Obtener estadísticas PRE-sincronización
         stats_antes = await self._get_aggregate_stats()
 
-        # 2. Obtener Top 16 del dia
+        # 2. Obtener Top 16 del día
         top16_agents = await self._get_top16_for_date(target_date, window_days)
 
         if not top16_agents:
@@ -114,156 +345,28 @@ class ClientAccountsSimulationService:
                 roi_promedio_despues=stats_antes["roi_promedio"]
             )
 
-        # 2.5. PRIMER DIA: Redistribuir todas las cuentas al Top16
-        # Verificar si es el primer dia (cuentas con agente_actual = "PENDING")
-        cuentas_sin_agente = self.cuentas_col.count_documents({"agente_actual": "PENDING"})
-        print(f"[CLIENT_ACCOUNTS_SYNC] Cuentas sin agente (PENDING): {cuentas_sin_agente}")
-
-        if cuentas_sin_agente > 0 and not dry_run:
-            print(f"[CLIENT_ACCOUNTS_SYNC] PRIMER DIA - Redistribuyendo TODAS las cuentas al Top16")
-            self.logger.info("Primer dia detectado - redistribuyendo todas las cuentas al Top16")
-
-            # Distribuir 1000 cuentas entre los 16 agentes
-            cuentas_por_agente = 1000 // 16  # 62 cuentas por agente
-            cuentas_restantes = 1000 % 16     # 8 cuentas sobrantes
-
-            # Obtener SOLO las cuentas con agente PENDING
-            todas_cuentas = list(self.cuentas_col.find({"agente_actual": "PENDING", "estado": "activo"}))
-            print(f"[CLIENT_ACCOUNTS_SYNC] Total cuentas PENDING: {len(todas_cuentas)}")
-
-            if len(todas_cuentas) > 0:
-                from pymongo import UpdateOne
-                from datetime import datetime
-                from app.utils.collection_names import get_top16_collection_name
-
-                # Obtener ROIs de agentes del Top16
-                top16_collection_name = get_top16_collection_name(window_days)
-                top16_col = self.db[top16_collection_name]
-                date_str = target_date.isoformat()
-
-                agents_roi_map = {}
-                roi_field = f"roi_{window_days}d"
-                print(f"[CLIENT_ACCOUNTS_SYNC] Obteniendo ROIs de agentes (campo: {roi_field})")
-
-                for agent in top16_agents:
-                    agent_id = agent["agent_id"]
-                    roi_decimal = agent.get(roi_field, 0.0)
-                    roi_percent = roi_decimal * 100
-                    agents_roi_map[agent_id] = roi_percent
-                    print(f"[CLIENT_ACCOUNTS_SYNC]   {agent_id}: {roi_decimal} -> {roi_percent}%")
-
-                # Distribuir cuentas
-                bulk_updates = []
-                historial_entries = []
-                cuenta_idx = 0
-                # IMPORTANTE: Usar la fecha de simulacion, NO la fecha actual del servidor
-                fecha_asignacion = datetime.combine(target_date, datetime.min.time())
-
-                for agent_idx, agent in enumerate(top16_agents):
-                    agent_id = agent["agent_id"]
-                    roi_agente = agents_roi_map.get(agent_id, 0.0)
-
-                    # Calcular cuantas cuentas asignar a este agente
-                    num_cuentas = cuentas_por_agente
-                    if agent_idx < cuentas_restantes:  # Distribuir las sobrantes
-                        num_cuentas += 1
-
-                    # Asignar cuentas a este agente
-                    for _ in range(num_cuentas):
-                        if cuenta_idx >= len(todas_cuentas):
-                            break
-
-                        cuenta = todas_cuentas[cuenta_idx]
-                        cuenta_id = cuenta["cuenta_id"]
-
-                        # Update cuenta
-                        bulk_updates.append(
-                            UpdateOne(
-                                {"_id": cuenta["_id"]},
-                                {
-                                    "$set": {
-                                        "agente_actual": agent_id,
-                                        "fecha_asignacion_agente": fecha_asignacion,
-                                        "roi_agente_al_asignar": roi_agente,
-                                        "roi_acumulado_con_agente": 0.0,
-                                        "roi_historico_anterior": 0.0,
-                                        "updated_at": fecha_asignacion
-                                    }
-                                }
-                            )
-                        )
-
-                        # Crear historial
-                        historial_entries.append({
-                            "cuenta_id": cuenta_id,
-                            "nombre_cliente": cuenta["nombre_cliente"],
-                            "agente_id": agent_id,
-                            "simulation_id": simulation_id,
-                            "fecha_inicio": fecha_asignacion,
-                            "fecha_fin": None,
-                            "roi_agente_inicio": roi_agente,
-                            "roi_agente_fin": None,
-                            "roi_cuenta_ganado": None,
-                            "balance_inicio": cuenta["balance_inicial"],
-                            "balance_fin": None,
-                            "motivo_cambio": "inicial",
-                            "dias_con_agente": None,
-                            "created_at": fecha_asignacion
-                        })
-
-                        cuenta_idx += 1
-
-                # Ejecutar updates
-                if bulk_updates:
-                    result = self.cuentas_col.bulk_write(bulk_updates)
-                    print(f"[CLIENT_ACCOUNTS_SYNC] Cuentas actualizadas: {result.modified_count}")
-
-                if historial_entries:
-                    self.historial_col.insert_many(historial_entries)
-                    print(f"[CLIENT_ACCOUNTS_SYNC] Historial creado: {len(historial_entries)} entradas")
-
-                cuentas_redistribuidas = len(bulk_updates)
-                rotaciones_procesadas = 0
-            else:
-                cuentas_redistribuidas = 0
-                rotaciones_procesadas = 0
-        else:
-            # 3. Detectar rotaciones (comparar Top 16 actual con anterior)
-            rotations = await self._detect_rotations(target_date, top16_agents, window_days)
-
-            cuentas_redistribuidas = 0
-            rotaciones_procesadas = 0
-
-            # 4. Manejar rotaciones si existen
-            if rotations and not dry_run:
-                rotation_result = await self.handle_rotations(
-                    rotations,
-                    target_date,
-                    simulation_id,
-                    window_days
-                )
-                cuentas_redistribuidas = rotation_result.cuentas_redistribuidas
-                rotaciones_procesadas = rotation_result.rotaciones_procesadas
-
-        # 5. Actualizar ROI de TODAS las cuentas
-        # NOTA: En dry_run calculamos pero no guardamos
-        update_result = await self.update_all_accounts_roi(
-            target_date,
-            window_days,
-            dry_run=dry_run
-        )
-        cuentas_actualizadas = update_result.cuentas_actualizadas
-
-        # 6. Guardar snapshot diario
-        snapshot_id = None
-        if not dry_run:
-            snapshot_result = await self.save_daily_snapshot(
-                target_date,
-                simulation_id
+        # 3. Detectar y manejar primer día O rotaciones
+        es_primer_dia, cuentas_redistribuidas_first, rotaciones_first = (
+            await self._check_and_handle_first_day(
+                target_date, simulation_id, top16_agents, window_days, dry_run
             )
-            snapshot_id = snapshot_result.snapshot_id
+        )
 
-        # 7. Estadisticas POST-sincronizacion
+        cuentas_redistribuidas_rot, rotaciones_procesadas_rot = (
+            await self._handle_rotations_if_needed(
+                es_primer_dia, target_date, simulation_id, top16_agents, window_days, dry_run
+            )
+        )
+
+        cuentas_redistribuidas = cuentas_redistribuidas_first + cuentas_redistribuidas_rot
+        rotaciones_procesadas = rotaciones_first + rotaciones_procesadas_rot
+
+        # 4. Actualizar ROI de todas las cuentas y guardar snapshot
+        cuentas_actualizadas, snapshot_id = await self._update_roi_and_save_snapshot(
+            target_date, simulation_id, window_days, dry_run
+        )
+
+        # 5. Obtener estadísticas POST-sincronización
         stats_despues = await self._get_aggregate_stats()
 
         self.logger.info(
@@ -342,56 +445,21 @@ class ClientAccountsSimulationService:
             detalles_rotaciones=detalles_rotaciones
         )
 
-    async def update_all_accounts_roi(
+    def _get_agents_roi_map(
         self,
-        target_date: date,
-        window_days: int = 7,
-        dry_run: bool = False
-    ) -> UpdateResult:
+        top16_agents: List[Dict[str, Any]],
+        window_days: int
+    ) -> Dict[str, float]:
         """
-        Actualiza el ROI de todas las cuentas basado en el ROI de sus agentes.
-
-        Formula ROI:
-        roi_con_agente_actual = roi_agente_actual - roi_agente_al_asignar
-        roi_total = roi_historico_anterior + roi_con_agente_actual
-        balance_actual = balance_inicial * (1 + roi_total / 100)
+        Crea mapa de agent_id -> ROI en porcentaje.
 
         Args:
-            target_date: Fecha objetivo
-            window_days: Ventana de dias para ROI
+            top16_agents: Lista de agentes Top 16
+            window_days: Ventana de días
 
         Returns:
-            UpdateResult con estadisticas de actualizacion
+            Diccionario de agent_id -> ROI (%)
         """
-        self.logger.info(f"Actualizando ROI de cuentas para {target_date}")
-
-        from pymongo import UpdateOne
-        from app.utils.collection_names import get_top16_collection_name, get_roi_collection_name
-
-        # 1. Obtener colecciones dinamicas
-        top16_collection_name = get_top16_collection_name(window_days)
-        roi_collection_name = get_roi_collection_name(window_days)
-
-        top16_col = self.db[top16_collection_name]
-        roi_col = self.db[roi_collection_name]
-
-        date_str = target_date.isoformat()
-
-        # 2. Obtener Top 16 del dia
-        top16_agents = list(top16_col.find({"date": date_str}))
-
-        self.logger.info(f"DEBUG: Top16 encontrados: {len(top16_agents)}")
-
-        if not top16_agents:
-            self.logger.warning(f"No se encontraron agentes para {date_str}")
-            return UpdateResult(
-                target_date=target_date,
-                cuentas_actualizadas=0,
-                balance_total=0.0,
-                roi_promedio=0.0
-            )
-
-        # 3. Crear mapa de agent_id -> roi_actual
         agents_roi_map = {}
         roi_field_name = f"roi_{window_days}d"
 
@@ -399,16 +467,31 @@ class ClientAccountsSimulationService:
 
         for agent in top16_agents:
             agent_id = agent["agent_id"]
-            # ROI en formato decimal (ej: 0.15 = 15%)
             roi_decimal = agent.get(roi_field_name, 0.0)
-            # Convertir a porcentaje para calculos
             roi_percentage = roi_decimal * 100
             agents_roi_map[agent_id] = roi_percentage
 
         self.logger.info(f"DEBUG: ROI map creado con {len(agents_roi_map)} agentes")
 
-        # 4. Obtener win rates de los agentes
-        agent_ids = [ag["agent_id"] for ag in top16_agents]
+        return agents_roi_map
+
+    def _get_win_rate_map(
+        self,
+        roi_col,
+        date_str: str,
+        agent_ids: List[str]
+    ) -> Dict[str, float]:
+        """
+        Obtiene win rates de los agentes.
+
+        Args:
+            roi_col: Colección de ROI
+            date_str: Fecha como string
+            agent_ids: Lista de IDs de agentes
+
+        Returns:
+            Diccionario de agent_id -> win_rate
+        """
         roi_docs = list(roi_col.find({
             "target_date": date_str,
             "userId": {"$in": agent_ids}
@@ -424,21 +507,28 @@ class ClientAccountsSimulationService:
             win_rate = positive_days / total_days if total_days > 0 else 0.0
             win_rate_map[user_id] = win_rate
 
-        # 5. Obtener todas las cuentas activas
-        cuentas = list(self.cuentas_col.find({"estado": "activo"}))
+        return win_rate_map
 
-        self.logger.info(f"DEBUG: Cuentas activas encontradas: {len(cuentas)}")
+    def _generate_roi_update_bulk_ops(
+        self,
+        cuentas: List[Dict[str, Any]],
+        agents_roi_map: Dict[str, float],
+        win_rate_map: Dict[str, float]
+    ) -> tuple[List, int, int]:
+        """
+        Genera operaciones bulk para actualización de ROI.
 
-        if not cuentas:
-            self.logger.warning("No hay cuentas activas")
-            return UpdateResult(
-                target_date=target_date,
-                cuentas_actualizadas=0,
-                balance_total=0.0,
-                roi_promedio=0.0
-            )
+        Args:
+            cuentas: Lista de cuentas activas
+            agents_roi_map: Mapa de ROIs de agentes
+            win_rate_map: Mapa de win rates
 
-        # 6. Preparar operaciones de actualizacion en bulk
+        Returns:
+            Tupla de (bulk_operations, cuentas_con_ganancia, cuentas_con_perdida)
+        """
+        from pymongo import UpdateOne
+        from datetime import datetime
+
         bulk_operations = []
         cuentas_con_ganancia = 0
         cuentas_con_perdida = 0
@@ -448,31 +538,28 @@ class ClientAccountsSimulationService:
             roi_agente_actual = agents_roi_map.get(agente_id)
 
             if roi_agente_actual is None:
-                self.logger.warning(f"Agente {agente_id} no encontrado en Top16")
+                self.logger.debug(f"Agente {agente_id} no encontrado en Top16 (puede haber sido expulsado)")
                 continue
 
-            # Formula: roi_con_agente_actual = roi_agente_actual - roi_agente_al_asignar
             roi_agente_al_asignar = cuenta["roi_agente_al_asignar"]
             roi_acumulado_con_agente = roi_agente_actual - roi_agente_al_asignar
 
-            # Formula: roi_total = roi_historico_anterior + roi_con_agente_actual
             roi_historico_anterior = cuenta.get("roi_historico_anterior", 0.0)
             roi_total_nuevo = roi_historico_anterior + roi_acumulado_con_agente
 
-            # Formula: balance_actual = balance_inicial * (1 + roi_total / 100)
             balance_inicial = cuenta["balance_inicial"]
             balance_actual = balance_inicial * (1 + roi_total_nuevo / 100)
 
-            # Win rate del agente
+            # Prevenir balance negativo (no se puede perder más del 100%)
+            balance_actual = max(0.0, balance_actual)
+
             win_rate = win_rate_map.get(agente_id, 0.0)
 
-            # Contar ganancias/perdidas
             if roi_total_nuevo > 0:
                 cuentas_con_ganancia += 1
             elif roi_total_nuevo < 0:
                 cuentas_con_perdida += 1
 
-            # Agregar operacion de actualizacion
             bulk_operations.append(
                 UpdateOne(
                     {"_id": cuenta["_id"]},
@@ -488,18 +575,121 @@ class ClientAccountsSimulationService:
                 )
             )
 
-        # 7. Ejecutar actualizaciones en bulk (solo si NO es dry_run)
-        cuentas_actualizadas = 0
-        if bulk_operations:
-            if not dry_run:
-                result = self.cuentas_col.bulk_write(bulk_operations)
-                cuentas_actualizadas = result.modified_count
-                self.logger.info(f"Actualizadas {cuentas_actualizadas} cuentas en BD")
-            else:
-                cuentas_actualizadas = len(bulk_operations)
-                self.logger.info(f"DRY RUN: {cuentas_actualizadas} cuentas se actualizarian")
+        return bulk_operations, cuentas_con_ganancia, cuentas_con_perdida
 
-        # 8. Calcular estadisticas finales
+    def _execute_roi_update_bulk_ops(
+        self,
+        bulk_operations: List,
+        dry_run: bool
+    ) -> int:
+        """
+        Ejecuta operaciones bulk de actualización de ROI.
+
+        Args:
+            bulk_operations: Lista de operaciones UpdateOne
+            dry_run: Si es True, solo simula
+
+        Returns:
+            Número de cuentas actualizadas
+        """
+        if not bulk_operations:
+            return 0
+
+        if not dry_run:
+            result = self.cuentas_col.bulk_write(bulk_operations)
+            cuentas_actualizadas = result.modified_count
+            self.logger.info(f"Actualizadas {cuentas_actualizadas} cuentas en BD")
+        else:
+            cuentas_actualizadas = len(bulk_operations)
+            self.logger.info(f"DRY RUN: {cuentas_actualizadas} cuentas se actualizarian")
+
+        return cuentas_actualizadas
+
+    async def update_all_accounts_roi(
+        self,
+        target_date: date,
+        window_days: int = 7,
+        dry_run: bool = False
+    ) -> UpdateResult:
+        """
+        Actualiza el ROI de todas las cuentas basado en el ROI de sus agentes.
+
+        Esta función ha sido refactorizada para reducir complejidad (11 -> ~7).
+        Secciones extraídas:
+        1. _get_agents_roi_map: Crea mapa de ROIs de agentes
+        2. _get_win_rate_map: Obtiene win rates de agentes
+        3. _generate_roi_update_bulk_ops: Genera operaciones bulk
+        4. _execute_roi_update_bulk_ops: Ejecuta operaciones
+
+        Formula ROI:
+        roi_con_agente_actual = roi_agente_actual - roi_agente_al_asignar
+        roi_total = roi_historico_anterior + roi_con_agente_actual
+        balance_actual = balance_inicial * (1 + roi_total / 100)
+
+        Args:
+            target_date: Fecha objetivo
+            window_days: Ventana de dias para ROI
+            dry_run: Si es True, solo simula sin guardar
+
+        Returns:
+            UpdateResult con estadisticas de actualizacion
+        """
+        self.logger.info(f"Actualizando ROI de cuentas para {target_date}")
+
+        from app.utils.collection_names import get_top16_collection_name, get_roi_collection_name
+
+        # 1. Obtener colecciones dinámicas y Top 16
+        top16_collection_name = get_top16_collection_name(window_days)
+        roi_collection_name = get_roi_collection_name(window_days)
+
+        top16_col = self.db[top16_collection_name]
+        roi_col = self.db[roi_collection_name]
+
+        date_str = target_date.isoformat()
+
+        top16_agents = list(top16_col.find({"date": date_str}))
+
+        self.logger.info(f"DEBUG: Top16 encontrados: {len(top16_agents)}")
+
+        if not top16_agents:
+            self.logger.warning(f"No se encontraron agentes para {date_str}")
+            return UpdateResult(
+                target_date=target_date,
+                cuentas_actualizadas=0,
+                balance_total=0.0,
+                roi_promedio=0.0
+            )
+
+        # 2. Crear mapa de ROIs de agentes
+        agents_roi_map = self._get_agents_roi_map(top16_agents, window_days)
+
+        # 3. Obtener win rates de agentes
+        agent_ids = [ag["agent_id"] for ag in top16_agents]
+        win_rate_map = self._get_win_rate_map(roi_col, date_str, agent_ids)
+
+        # 4. Obtener cuentas activas
+        cuentas = list(self.cuentas_col.find({"estado": "activo"}))
+
+        self.logger.info(f"DEBUG: Cuentas activas encontradas: {len(cuentas)}")
+
+        if not cuentas:
+            self.logger.warning("No hay cuentas activas")
+            return UpdateResult(
+                target_date=target_date,
+                cuentas_actualizadas=0,
+                balance_total=0.0,
+                roi_promedio=0.0
+            )
+
+        # 5. Generar operaciones bulk
+        bulk_operations, cuentas_con_ganancia, cuentas_con_perdida = (
+            self._generate_roi_update_bulk_ops(cuentas, agents_roi_map, win_rate_map)
+        )
+
+        # 6. Ejecutar operaciones bulk
+        cuentas_actualizadas = self._execute_roi_update_bulk_ops(bulk_operations, dry_run)
+
+        # 7. Calcular estadísticas finales
         stats = await self._get_aggregate_stats()
 
         self.logger.info(
@@ -721,6 +911,7 @@ class ClientAccountsSimulationService:
 
         # 3. Preparar actualizaciones
         bulk_updates = []
+        bulk_historial_updates = []  # OPTIMIZACIÓN: Bulk updates para historial
         historial_entries = []
         fecha_redistribucion = datetime.utcnow()
 
@@ -728,29 +919,31 @@ class ClientAccountsSimulationService:
             cuenta_id = cuenta["cuenta_id"]
             dias_con_agente = (fecha_redistribucion - cuenta["fecha_asignacion_agente"]).days
 
-            # 3.1. Cerrar registro actual en historial
-            self.historial_col.update_one(
-                {
-                    "cuenta_id": cuenta_id,
-                    "agente_id": agent_out,
-                    "fecha_fin": None
-                },
-                {
-                    "$set": {
-                        "fecha_fin": fecha_redistribucion,
-                        "roi_agente_fin": roi_agente_out,
-                        "roi_cuenta_ganado": cuenta.get("roi_acumulado_con_agente", 0.0),
-                        "balance_fin": cuenta["balance_actual"],
-                        "dias_con_agente": dias_con_agente
+            # 3.1. OPTIMIZACIÓN: Preparar actualización bulk para historial (en vez de update_one individual)
+            bulk_historial_updates.append(
+                UpdateOne(
+                    {
+                        "cuenta_id": cuenta_id,
+                        "agente_id": agent_out,
+                        "fecha_fin": None
+                    },
+                    {
+                        "$set": {
+                            "fecha_fin": fecha_redistribucion,
+                            "roi_agente_fin": roi_agente_out,
+                            "roi_cuenta_ganado": cuenta.get("roi_acumulado_con_agente", 0.0),
+                            "balance_fin": cuenta["balance_actual"],
+                            "dias_con_agente": dias_con_agente
+                        }
                     }
-                }
+                )
             )
 
             # 3.2. Actualizar roi_historico_anterior con el ROI ganado hasta ahora
             # Formula: roi_historico_anterior + roi_acumulado_con_agente
             roi_historico_anterior_nuevo = (
-                cuenta.get("roi_historico_anterior", 0.0) +
-                cuenta.get("roi_acumulado_con_agente", 0.0)
+                cuenta.get("roi_historico_anterior", 0.0)
+                + cuenta.get("roi_acumulado_con_agente", 0.0)
             )
 
             # 3.3. Crear nuevo registro en historial
@@ -791,12 +984,17 @@ class ClientAccountsSimulationService:
                 )
             )
 
-        # 4. Ejecutar actualizaciones en bulk
+        # 4. OPTIMIZACIÓN: Ejecutar actualizaciones bulk de historial (cierre de registros)
+        if bulk_historial_updates:
+            result_historial = self.historial_col.bulk_write(bulk_historial_updates, ordered=False)
+            self.logger.info(f"[BULK_HISTORIAL] Cerrados {result_historial.modified_count} registros en historial")
+
+        # 5. Ejecutar actualizaciones en bulk de cuentas
         if bulk_updates:
             result = self.cuentas_col.bulk_write(bulk_updates)
             self.logger.info(f"Actualizadas {result.modified_count} cuentas")
 
-        # 5. Insertar historial en bulk
+        # 6. Insertar nuevas entradas de historial en bulk
         if historial_entries:
             self.historial_col.insert_many(historial_entries)
             self.logger.info(f"Insertadas {len(historial_entries)} entradas de historial")
@@ -890,7 +1088,7 @@ class ClientAccountsSimulationService:
         from datetime import timedelta
         from app.utils.collection_names import get_top16_collection_name
 
-        print(f"[CLIENT_ACCOUNTS_SYNC] Detectando rotaciones para fecha {target_date}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Detectando rotaciones para fecha {target_date}")
 
         # 1. Obtener el Top 16 del dia anterior
         previous_date = target_date - timedelta(days=1)
@@ -904,13 +1102,13 @@ class ClientAccountsSimulationService:
             }).sort("rank", 1).limit(16)
         )
 
-        print(f"[CLIENT_ACCOUNTS_SYNC] Previous date: {previous_date.isoformat()}")
-        print(f"[CLIENT_ACCOUNTS_SYNC] Previous Top16 count: {len(previous_top16)}")
-        print(f"[CLIENT_ACCOUNTS_SYNC] Current Top16 count: {len(current_top16)}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Previous date: {previous_date.isoformat()}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Previous Top16 count: {len(previous_top16)}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Current Top16 count: {len(current_top16)}")
 
         # Si no hay Top 16 anterior (primer dia), no hay rotaciones
         if not previous_top16:
-            print("[CLIENT_ACCOUNTS_SYNC] No hay Top 16 anterior - primer dia de simulacion")
+            logger.info("[CLIENT_ACCOUNTS_SYNC] No hay Top 16 anterior - primer dia de simulacion")
             self.logger.info("No hay Top 16 anterior - primer dia de simulacion")
             return []
 
@@ -918,8 +1116,8 @@ class ClientAccountsSimulationService:
         current_ids = {agent["agent_id"] for agent in current_top16}
         previous_ids = {agent["agent_id"] for agent in previous_top16}
 
-        print(f"[CLIENT_ACCOUNTS_SYNC] Current IDs: {current_ids}")
-        print(f"[CLIENT_ACCOUNTS_SYNC] Previous IDs: {previous_ids}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Current IDs: {current_ids}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Previous IDs: {previous_ids}")
 
         # 3. Detectar agentes que salieron (estaban en anterior pero no en actual)
         agents_out = previous_ids - current_ids
@@ -927,28 +1125,28 @@ class ClientAccountsSimulationService:
         # 4. Detectar agentes que entraron (estan en actual pero no en anterior)
         agents_in = current_ids - previous_ids
 
-        print(f"[CLIENT_ACCOUNTS_SYNC] Agentes que salieron: {agents_out}")
-        print(f"[CLIENT_ACCOUNTS_SYNC] Agentes que entraron: {agents_in}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Agentes que salieron: {agents_out}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Agentes que entraron: {agents_in}")
 
         # 5. Crear rotaciones
         rotations = []
 
         # Para cada agente que salio, buscar cuentas asignadas a el
         for agent_out in agents_out:
-            print(f"[CLIENT_ACCOUNTS_SYNC] Procesando agente saliente: {agent_out}")
+            logger.info(f"[CLIENT_ACCOUNTS_SYNC] Procesando agente saliente: {agent_out}")
             # Verificar si hay cuentas con este agente
             num_cuentas = self.cuentas_col.count_documents({
                 "agente_actual": agent_out,
                 "estado": "activo"
             })
 
-            print(f"[CLIENT_ACCOUNTS_SYNC] Agente {agent_out} tiene {num_cuentas} cuentas")
+            logger.info(f"[CLIENT_ACCOUNTS_SYNC] Agente {agent_out} tiene {num_cuentas} cuentas")
 
             if num_cuentas > 0:
                 # Buscar el mejor agente que entro (el de mayor rank)
                 # Si hay multiples agentes nuevos, asignar al mejor
                 if agents_in:
-                    print(f"[CLIENT_ACCOUNTS_SYNC] Buscando mejor agente entrante entre {len(agents_in)} opciones")
+                    logger.info(f"[CLIENT_ACCOUNTS_SYNC] Buscando mejor agente entrante entre {len(agents_in)} opciones")
                     # Encontrar el agente con mejor rank en current_top16
                     best_agent_in = None
                     best_rank = 999
@@ -959,7 +1157,7 @@ class ClientAccountsSimulationService:
                             best_rank = agent["rank"]
 
                     if best_agent_in:
-                        print(f"[CLIENT_ACCOUNTS_SYNC] Rotacion creada: {agent_out} -> {best_agent_in} (rank {best_rank})")
+                        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Rotacion creada: {agent_out} -> {best_agent_in} (rank {best_rank})")
                         self.logger.info(
                             f"Rotacion detectada: {agent_out} (salio) -> {best_agent_in} (rank {best_rank})"
                             f"\n  Cuentas afectadas: {num_cuentas}"
@@ -975,9 +1173,9 @@ class ClientAccountsSimulationService:
 
                         # Remover el agente usado de agents_in para no reutilizarlo
                         agents_in.remove(best_agent_in)
-                        print(f"[CLIENT_ACCOUNTS_SYNC] Agentes entrantes restantes: {len(agents_in)}")
+                        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Agentes entrantes restantes: {len(agents_in)}")
 
-        print(f"[CLIENT_ACCOUNTS_SYNC] Total rotaciones detectadas: {len(rotations)}")
+        logger.info(f"[CLIENT_ACCOUNTS_SYNC] Total rotaciones detectadas: {len(rotations)}")
         self.logger.info(f"Total rotaciones detectadas: {len(rotations)}")
 
         return rotations

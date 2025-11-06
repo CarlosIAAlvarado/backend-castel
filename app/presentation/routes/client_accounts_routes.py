@@ -11,10 +11,9 @@ Endpoints disponibles:
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
-from pymongo.database import Database
 
 from app.application.services.client_accounts_service import ClientAccountsService
 from app.config.database import database_manager
@@ -362,6 +361,124 @@ async def get_latest_simulation():
 
 
 @router.get("/timeline")
+def _validate_timeline_dates(start_date: str, end_date: str) -> tuple[Any, Any]:
+    """
+    Valida las fechas del timeline.
+
+    Returns:
+        tuple: (start_dt, end_dt) como objetos datetime
+
+    Raises:
+        HTTPException: Si las fechas son inválidas
+    """
+    from datetime import datetime
+
+    try:
+        start_dt = datetime.fromisoformat(start_date)
+        end_dt = datetime.fromisoformat(end_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Formato de fecha invalido: {e}")
+
+    if start_dt > end_dt:
+        raise HTTPException(status_code=400, detail="start_date debe ser menor o igual que end_date")
+
+    return start_dt, end_dt
+
+
+def _get_snapshots(start_date: str, end_date: str, simulation_id: Optional[str]) -> List[Dict[str, Any]]:
+    """
+    Obtiene snapshots del rango de fechas especificado.
+
+    Returns:
+        Lista de snapshots ordenados por fecha
+
+    Raises:
+        HTTPException: Si no se encuentran snapshots
+    """
+    db = database_manager.get_database()
+    snapshots_col = db.client_accounts_snapshots
+
+    query = {
+        "target_date": {
+            "$gte": start_date,
+            "$lte": end_date
+        }
+    }
+
+    if simulation_id:
+        query["simulation_id"] = simulation_id
+
+    snapshots = list(snapshots_col.find(query).sort("target_date", 1))
+
+    if not snapshots:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontraron snapshots para el rango {start_date} - {end_date}"
+        )
+
+    return snapshots
+
+
+def _build_aggregate_stats(snapshots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Construye estadísticas agregadas de los snapshots.
+
+    Returns:
+        Lista de estadísticas por fecha
+    """
+    return [
+        {
+            "date": s["target_date"],
+            "balance_total": s["balance_total"],
+            "roi_promedio": s["roi_promedio"],
+            "cuentas_activas": s["total_cuentas"]
+        }
+        for s in snapshots
+    ]
+
+
+def _build_account_timeline(cuenta_id: str, snapshots: List[Dict[str, Any]], service: ClientAccountsService) -> List[Dict[str, Any]]:
+    """
+    Construye el timeline de una cuenta específica.
+
+    Returns:
+        Lista con un elemento conteniendo el timeline de la cuenta
+
+    Raises:
+        HTTPException: Si no se encuentra la cuenta
+    """
+    cuenta_timeline = []
+    for snapshot in snapshots:
+        cuentas_estado = snapshot.get("cuentas_estado", [])
+        cuenta_data = next((c for c in cuentas_estado if c["cuenta_id"] == cuenta_id), None)
+
+        if cuenta_data:
+            cuenta_timeline.append({
+                "date": snapshot["target_date"],
+                "balance": cuenta_data["balance"],
+                "roi": cuenta_data["roi"],
+                "agente": cuenta_data["agente"],
+                "evento": None
+            })
+
+    if not cuenta_timeline:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontro la cuenta {cuenta_id} en los snapshots"
+        )
+
+    # Obtener info básica de la cuenta
+    cuenta = service.cuentas_trading_col.find_one({"cuenta_id": cuenta_id})
+    if not cuenta:
+        raise HTTPException(status_code=404, detail=f"Cuenta {cuenta_id} no encontrada")
+
+    return [{
+        "cuenta_id": cuenta_id,
+        "nombre_cliente": cuenta["nombre_cliente"],
+        "timeline": cuenta_timeline
+    }]
+
+
 async def get_client_accounts_timeline(
     start_date: str = Query(..., description="Fecha inicio (YYYY-MM-DD)"),
     end_date: str = Query(..., description="Fecha fin (YYYY-MM-DD)"),
@@ -371,6 +488,8 @@ async def get_client_accounts_timeline(
 ):
     """
     Obtiene la evolucion dia a dia de las cuentas de clientes.
+
+    Esta función ha sido refactorizada para reducir complejidad (14 -> ~6).
 
     Este endpoint devuelve un timeline completo con:
     - Estadisticas agregadas por dia
@@ -395,89 +514,20 @@ async def get_client_accounts_timeline(
     try:
         logger.info(f"Obteniendo timeline: {start_date} -> {end_date}, simulation_id={simulation_id}")
 
-        from datetime import datetime
+        # 1. Validar fechas
+        _validate_timeline_dates(start_date, end_date)
 
-        # Validar formato de fechas
-        try:
-            start_dt = datetime.fromisoformat(start_date)
-            end_dt = datetime.fromisoformat(end_date)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"Formato de fecha invalido: {e}")
+        # 2. Obtener snapshots
+        snapshots = _get_snapshots(start_date, end_date, simulation_id)
 
-        if start_dt > end_dt:
-            raise HTTPException(status_code=400, detail="start_date debe ser menor o igual que end_date")
-
-        # Obtener snapshots del rango de fechas
-        db = database_manager.get_database()
-        snapshots_col = db.client_accounts_snapshots
-
-        query = {
-            "target_date": {
-                "$gte": start_date,
-                "$lte": end_date
-            }
-        }
-
-        if simulation_id:
-            query["simulation_id"] = simulation_id
-
-        snapshots = list(
-            snapshots_col.find(query).sort("target_date", 1)
-        )
-
-        if not snapshots:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No se encontraron snapshots para el rango {start_date} - {end_date}"
-            )
-
-        # Construir response
+        # 3. Construir respuesta
         dates = [s["target_date"] for s in snapshots]
+        aggregate_stats = _build_aggregate_stats(snapshots)
 
-        aggregate_stats = [
-            {
-                "date": s["target_date"],
-                "balance_total": s["balance_total"],
-                "roi_promedio": s["roi_promedio"],
-                "cuentas_activas": s["total_cuentas"]
-            }
-            for s in snapshots
-        ]
-
-        # Si se filtra por cuenta especifica, construir timeline de esa cuenta
+        # 4. Construir timeline de cuenta específica si se solicita
         accounts_timeline = []
         if cuenta_id:
-            # Buscar en cuentas_estado de cada snapshot
-            cuenta_timeline = []
-            for snapshot in snapshots:
-                cuentas_estado = snapshot.get("cuentas_estado", [])
-                cuenta_data = next((c for c in cuentas_estado if c["cuenta_id"] == cuenta_id), None)
-
-                if cuenta_data:
-                    cuenta_timeline.append({
-                        "date": snapshot["target_date"],
-                        "balance": cuenta_data["balance"],
-                        "roi": cuenta_data["roi"],
-                        "agente": cuenta_data["agente"],
-                        "evento": None
-                    })
-
-            if not cuenta_timeline:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"No se encontro la cuenta {cuenta_id} en los snapshots"
-                )
-
-            # Obtener info basica de la cuenta
-            cuenta = service.cuentas_trading_col.find_one({"cuenta_id": cuenta_id})
-            if not cuenta:
-                raise HTTPException(status_code=404, detail=f"Cuenta {cuenta_id} no encontrada")
-
-            accounts_timeline = [{
-                "cuenta_id": cuenta_id,
-                "nombre_cliente": cuenta["nombre_cliente"],
-                "timeline": cuenta_timeline
-            }]
+            accounts_timeline = _build_account_timeline(cuenta_id, snapshots, service)
 
         return {
             "simulation_id": simulation_id or snapshots[0].get("simulation_id", "unknown"),

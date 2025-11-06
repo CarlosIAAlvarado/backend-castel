@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
+from datetime import date
 from app.infrastructure.di.providers import SimulationRepositoryDep, DatabaseDep
 from app.domain.entities.simulation import Simulation
+from app.domain.services.kpi_aggregation_service import KPIAggregationService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -93,6 +95,96 @@ async def get_simulation(
         raise HTTPException(
             status_code=500,
             detail=f"Error al obtener simulacion: {str(e)}"
+        )
+
+
+@router.get("/{simulation_id}/kpis")
+async def get_filtered_kpis(
+    simulation_id: str,
+    window_days: int = Query(..., ge=3, le=30, description="Ventana de dias para KPIs (3, 5, 10, 15, 30)"),
+    target_date: str = Query(..., description="Fecha objetivo (YYYY-MM-DD)"),
+    simulation_repo: SimulationRepositoryDep = None,
+    db: DatabaseDep = None
+) -> Dict[str, Any]:
+    """
+    Obtiene KPIs recalculados para una ventana de tiempo especifica sin re-ejecutar la simulacion.
+
+    Este endpoint permite "seccionar" una simulacion de 30 dias en ventanas mas pequenas
+    (3, 5, 10, 15 dias) para analizar KPIs en diferentes periodos.
+
+    Args:
+        simulation_id: UUID de la simulacion
+        window_days: Ventana de dias (3, 5, 10, 15, 30)
+        target_date: Fecha objetivo en formato YYYY-MM-DD
+        simulation_repo: Repositorio de simulaciones inyectado
+        db: Base de datos inyectada
+
+    Returns:
+        KPIs recalculados, Top16 y metricas diarias para la ventana especificada
+
+    Raises:
+        404: Si la simulacion no existe
+        400: Si los parametros son invalidos
+    """
+    try:
+        # Validar que la simulacion existe
+        simulation = simulation_repo.get_by_id(simulation_id)
+        if not simulation:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Simulacion con ID {simulation_id} no encontrada"
+            )
+
+        # Validar window_days
+        if window_days not in [3, 5, 10, 15, 30]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"window_days debe ser 3, 5, 10, 15 o 30. Recibido: {window_days}"
+            )
+
+        # Parsear target_date
+        try:
+            end_date = date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Formato de fecha invalido: {target_date}. Use YYYY-MM-DD"
+            )
+
+        # Calcular start_date basado en window_days
+        from datetime import timedelta
+        start_date = end_date - timedelta(days=window_days - 1)
+
+        # Validar que el rango este dentro de la simulacion original
+        sim_start = simulation.config.start_date
+        sim_end = simulation.config.target_date
+
+        if start_date < sim_start or end_date > sim_end:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El rango [{start_date}, {end_date}] esta fuera del rango de la simulacion [{sim_start}, {sim_end}]"
+            )
+
+        # Usar el servicio de agregacion
+        kpi_service = KPIAggregationService(db)
+        result = kpi_service.get_filtered_kpis(
+            simulation_id=simulation_id,
+            window_days=window_days,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error al obtener KPIs filtrados: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al calcular KPIs filtrados: {str(e)}"
         )
 
 
@@ -386,7 +478,7 @@ def _get_common_agents(simulations: List[Simulation]) -> List[str]:
     # Interseccion de todos los conjuntos
     common = set.intersection(*agent_sets) if agent_sets else set()
 
-    return sorted(list(common))
+    return sorted(common)
 
 
 def _get_partially_common_agents(simulations: List[Simulation]) -> List[str]:

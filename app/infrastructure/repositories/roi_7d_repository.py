@@ -39,6 +39,7 @@ class ROI7DRepository:
         Args:
             db: Instancia de la base de datos MongoDB
         """
+        self.collection_name = self.COLLECTION_NAME
         self.collection = db[self.COLLECTION_NAME]
         logger.info(f"ROI7DRepository inicializado con colección '{self.COLLECTION_NAME}'")
 
@@ -100,11 +101,6 @@ class ROI7DRepository:
                 upsert=True
             )
 
-            logger.debug(
-                f"ROI 7D guardado: userId={roi_7d.userId}, "
-                f"target_date={roi_7d.target_date}, roi={roi_7d.roi_7d_total:.4f}"
-            )
-
             return str(result.upserted_id) if result.upserted_id else "updated"
 
         except PyMongoError as e:
@@ -138,9 +134,6 @@ class ROI7DRepository:
             )
 
             if not doc:
-                logger.debug(
-                    f"ROI 7D no encontrado: userId={userId}, target_date={target_date}"
-                )
                 return None
 
             return ROI7D(**doc)

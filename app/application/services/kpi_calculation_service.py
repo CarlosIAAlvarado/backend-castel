@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import date, timedelta
+from datetime import date
 import numpy as np
 from app.application.services.data_aggregation_service import DataAggregationService
 

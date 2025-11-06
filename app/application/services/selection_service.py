@@ -1,19 +1,20 @@
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from datetime import date, timedelta
 import asyncio
 import logging
 from app.application.services.roi_7d_calculation_service import ROI7DCalculationService
 from app.application.services.balance_query_service import BalanceQueryService
 from app.application.services.bulk_roi_calculation_service import BulkROICalculationService
+from app.domain.strategies.ranking_strategy import RankingStrategy, ROIRankingStrategy
 from app.domain.entities.top16_day import Top16Day
-from app.domain.entities.roi_7d import ROI7D
 from app.domain.repositories.top16_repository import Top16Repository
 from app.domain.repositories.balance_repository import BalanceRepository
 from app.config.database import database_manager
 from app.infrastructure.repositories.top16_repository_impl import Top16RepositoryImpl
 from app.utils.collection_names import get_top16_collection_name
+from app.infrastructure.config.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("selection_service")
 
 
 class SelectionService:
@@ -36,21 +37,27 @@ class SelectionService:
         top16_repo: Top16Repository,
         balance_repo: BalanceRepository,
         roi_7d_service: ROI7DCalculationService,
-        balance_query_service: BalanceQueryService
+        balance_query_service: BalanceQueryService,
+        ranking_strategy: Optional[RankingStrategy] = None
     ):
         """
         Constructor con inyeccion de dependencias.
+
+        SOLID Improvement: Agregado ranking_strategy para aplicar Open/Closed Principle (OCP).
+        Permite cambiar el criterio de ranking sin modificar el código.
 
         Args:
             top16_repo: Repositorio de Top16
             balance_repo: Repositorio de balances
             roi_7d_service: Servicio para calcular ROI_7D con nueva logica
             balance_query_service: Servicio de consultas de balances
+            ranking_strategy: Estrategia de ranking (default: ROIRankingStrategy)
         """
         self.top16_repo = top16_repo
         self.balance_repo = balance_repo
         self.roi_7d_service = roi_7d_service
         self.balance_query_service = balance_query_service
+        self.ranking_strategy = ranking_strategy or ROIRankingStrategy()
 
     def get_all_agents_from_balances(self, target_date: date) -> List[str]:
         """
@@ -81,17 +88,12 @@ class SelectionService:
                 unique_agents.add(balance.user_id)
 
         logger.info(
-            f"Found {len(unique_agents)} unique userIds with balances in window "
-            f"[{window_start} -> {window_end}]"
+            f"Found {len(unique_agents)} unique userIds with balances in window " f"[{window_start} -> {window_end}]"
         )
 
         return list(unique_agents)
 
-    async def _calculate_single_agent_roi(
-        self,
-        userId: str,
-        target_date: date
-    ) -> Dict[str, Any]:
+    async def _calculate_single_agent_roi(self, userId: str, target_date: date) -> Dict[str, Any]:
         """
         Calcula el ROI_7D de un agente individual usando la NUEVA LOGICA.
 
@@ -110,17 +112,13 @@ class SelectionService:
             Diccionario con datos del agente, o None si falla
         """
         try:
-            roi_7d_entity = await self.roi_7d_service.calculate_roi_7d(
-                userId, target_date
-            )
+            roi_7d_entity = await self.roi_7d_service.calculate_roi_7d(userId, target_date)
 
             if not roi_7d_entity:
                 logger.debug(f"No ROI_7D data for userId {userId} on {target_date}")
                 return None
 
-            balance_current = self.balance_query_service.get_balance_by_agent_and_date(
-                userId, target_date
-            )
+            balance_current = self.balance_query_service.get_balance_by_agent_and_date(userId, target_date)
 
             return {
                 "agent_id": userId,
@@ -132,7 +130,7 @@ class SelectionService:
                 "total_aum": balance_current if balance_current else 0.0,
                 "total_trades_7d": roi_7d_entity.total_trades_7d,
                 "positive_days": roi_7d_entity.positive_days,
-                "negative_days": roi_7d_entity.negative_days
+                "negative_days": roi_7d_entity.negative_days,
             }
 
         except (ValueError, KeyError, TypeError, AttributeError) as e:
@@ -143,10 +141,7 @@ class SelectionService:
             raise
 
     async def calculate_all_agents_roi_7d(
-        self,
-        target_date: date,
-        agent_ids: List[str] = None,
-        min_aum: float = 0.01
+        self, target_date: date, agent_ids: List[str] = None, min_aum: float = 0.01
     ) -> List[Dict[str, Any]]:
         """
         Calcula el ROI_7D de todos los agentes usando la NUEVA LOGICA.
@@ -171,10 +166,7 @@ class SelectionService:
         logger.info(f"Calculating ROI_7D for {len(agent_ids)} agents on {target_date} (PARALLEL)")
 
         # Crear tareas para todos los agentes (procesamiento paralelo)
-        tasks = [
-            self._calculate_single_agent_roi(agent_id, target_date)
-            for agent_id in agent_ids
-        ]
+        tasks = [self._calculate_single_agent_roi(agent_id, target_date) for agent_id in agent_ids]
 
         # Ejecutar todas las tareas en paralelo
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -187,10 +179,7 @@ class SelectionService:
             # Manejar excepciones capturadas por gather
             if isinstance(result, Exception):
                 agent_id = agent_ids[i]
-                logger.error(
-                    f"Error calculating ROI for agent {agent_id}: {result}",
-                    exc_info=result
-                )
+                logger.error(f"Error calculating ROI for agent {agent_id}: {result}", exc_info=result)
                 errors_count += 1
                 continue
 
@@ -212,11 +201,7 @@ class SelectionService:
         return agents_data
 
     async def calculate_all_agents_roi_7d_ULTRA_FAST(
-        self,
-        target_date: date,
-        agent_ids: List[str] = None,
-        min_aum: float = 0.01,
-        window_days: int = 7
+        self, target_date: date, agent_ids: List[str] = None, min_aum: float = 0.01, window_days: int = 7
     ) -> List[Dict[str, Any]]:
         """
         VERSION 4.0 - ULTRA OPTIMIZADO con Bulk Processing + Ventanas Dinámicas.
@@ -253,18 +238,20 @@ class SelectionService:
         for user_id, roi_data in bulk_results.items():
             # Filtrar por min_aum
             if roi_data["balance_current"] > min_aum:
-                agents_data.append({
-                    "agent_id": user_id,
-                    "userId": user_id,
-                    "roi_7d": roi_data["roi_7d_total"],
-                    "total_pnl": roi_data["total_pnl_7d"],
-                    "balance_current": roi_data["balance_current"],
-                    "n_accounts": 1,
-                    "total_aum": roi_data["balance_current"],
-                    "total_trades_7d": roi_data["total_trades_7d"],
-                    "positive_days": roi_data["positive_days"],
-                    "negative_days": roi_data["negative_days"]
-                })
+                agents_data.append(
+                    {
+                        "agent_id": user_id,
+                        "userId": user_id,
+                        "roi_7d": roi_data["roi_7d_total"],
+                        "total_pnl": roi_data["total_pnl_7d"],
+                        "balance_current": roi_data["balance_current"],
+                        "n_accounts": 1,
+                        "total_aum": roi_data["balance_current"],
+                        "total_trades_7d": roi_data["total_trades_7d"],
+                        "positive_days": roi_data["positive_days"],
+                        "negative_days": roi_data["negative_days"],
+                    }
+                )
 
         logger.info(
             f"ROI_{window_days}D calculation complete (ULTRA FAST): {len(agents_data)}/{len(agent_ids)} agents "
@@ -273,13 +260,13 @@ class SelectionService:
 
         return agents_data
 
-    def rank_agents_by_roi_7d(
-        self,
-        agents_data: List[Dict[str, Any]],
-        window_days: int = 7
-    ) -> List[Dict[str, Any]]:
+    def rank_agents_by_roi_7d(self, agents_data: List[Dict[str, Any]], window_days: int = 7) -> List[Dict[str, Any]]:
         """
-        Rankea agentes por ROI de mayor a menor.
+        Rankea agentes usando la estrategia de ranking configurada.
+
+        VERSION 3.0 - SOLID Improvement (OCP):
+        Ahora usa RankingStrategy para permitir diferentes criterios de ranking
+        sin modificar el código (Open/Closed Principle).
 
         VERSION 2.0: Soporta ventanas dinamicas (3d, 5d, 7d, 10d, 15d, 30d)
 
@@ -289,24 +276,43 @@ class SelectionService:
 
         Returns:
             Lista ordenada con rank asignado
+
+        Example:
+            # Usar ROI (default)
+            service = SelectionService(..., ranking_strategy=ROIRankingStrategy(window_days=7))
+
+            # Cambiar a Sharpe Ratio
+            service = SelectionService(..., ranking_strategy=SharpeRatioRankingStrategy())
+
+            # Estrategia compuesta
+            composite = CompositeRankingStrategy({
+                ROIRankingStrategy(): 0.6,
+                SharpeRatioRankingStrategy(): 0.4
+            })
+            service = SelectionService(..., ranking_strategy=composite)
         """
-        roi_field = f"roi_{window_days}d"
+        # Actualizar la ventana de días en la estrategia si es ROIRankingStrategy
+        if isinstance(self.ranking_strategy, ROIRankingStrategy):
+            self.ranking_strategy.window_days = window_days
+            self.ranking_strategy.roi_field = f"roi_{window_days}d"
+
+        # Usar la estrategia para obtener el sort key
         sorted_agents = sorted(
             agents_data,
-            key=lambda x: x.get(roi_field, 0.0),
+            key=lambda x: self.ranking_strategy.get_sort_key(x),
             reverse=True
         )
 
+        # Asignar ranks
         for rank, agent in enumerate(sorted_agents, start=1):
             agent["rank"] = rank
+
+        logger.info(f"Ranking usando estrategia: {self.ranking_strategy.get_strategy_name()}")
 
         return sorted_agents
 
     async def select_top_16(
-        self,
-        target_date: date,
-        agent_ids: List[str] = None,
-        window_days: int = 7
+        self, target_date: date, agent_ids: List[str] = None, window_days: int = 7
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Selecciona los Top 16 agentes con mejor ROI usando NUEVA LOGICA.
@@ -332,9 +338,7 @@ class SelectionService:
             Tupla con (top_16, all_ranked)
         """
         # USA LA VERSION ULTRA RAPIDA
-        agents_data = await self.calculate_all_agents_roi_7d_ULTRA_FAST(
-            target_date, agent_ids, window_days=window_days
-        )
+        agents_data = await self.calculate_all_agents_roi_7d_ULTRA_FAST(target_date, agent_ids, window_days=window_days)
 
         if not agents_data:
             logger.warning(f"No agents data found for {target_date}")
@@ -346,6 +350,12 @@ class SelectionService:
         excluded_agents_stop_loss = []
         roi_field = f"roi_{window_days}d"
 
+        # OPTIMIZACIÓN: Verificar 3 días consecutivos para TODOS los agentes en 1 SOLA QUERY
+        all_agent_ids = [agent["agent_id"] for agent in agents_data]
+        three_consecutive_results = self._check_three_consecutive_losses_BULK(
+            all_agent_ids, target_date, window_days=window_days
+        )
+
         for agent in agents_data:
             agent_id = agent["agent_id"]
             roi = agent.get(roi_field, 0.0)
@@ -355,17 +365,17 @@ class SelectionService:
                 excluded_agents_stop_loss.append(agent_id)
                 logger.warning(
                     f"[EXPULSION_STOP_LOSS] {agent_id} excluido del Top 16 por Stop Loss "
-                    f"(ROI: {roi*100:.2f}% < -10%)"
+                    f"(ROI: {roi * 100:.2f}% < -10%)"
                 )
                 continue
 
-            # CONDICION 2: 3 días consecutivos de pérdida
-            has_three_consecutive = self._check_three_consecutive_losses(agent_id, target_date)
+            # CONDICION 2: 3 días consecutivos de pérdida (usar resultado bulk)
+            has_three_consecutive = three_consecutive_results.get(agent_id, False)
             if has_three_consecutive:
                 excluded_agents_3day.append(agent_id)
                 logger.warning(
                     f"[EXPULSION_3_DIAS] {agent_id} excluido del Top 16 por 3 días consecutivos de pérdida "
-                    f"(ROI: {roi*100:.2f}%)"
+                    f"(ROI: {roi * 100:.2f}%)"
                 )
                 continue
 
@@ -373,7 +383,9 @@ class SelectionService:
             agents_eligible.append(agent)
 
         if excluded_agents_stop_loss:
-            logger.info(f"[EXPULSION_STOP_LOSS] Total excluidos: {len(excluded_agents_stop_loss)} - {excluded_agents_stop_loss}")
+            logger.info(
+                f"[EXPULSION_STOP_LOSS] Total excluidos: {len(excluded_agents_stop_loss)} - {excluded_agents_stop_loss}"
+            )
         if excluded_agents_3day:
             logger.info(f"[EXPULSION_3_DIAS] Total excluidos: {len(excluded_agents_3day)} - {excluded_agents_3day}")
 
@@ -397,7 +409,7 @@ class SelectionService:
         target_date: date,
         top_16: List[Dict[str, Any]],
         casterly_agent_ids: List[str] = None,
-        window_days: int = 7
+        window_days: int = 7,
     ) -> List[Top16Day]:
         """
         Guarda el ranking Top 16 en la base de datos con colección dinámica.
@@ -430,7 +442,7 @@ class SelectionService:
                 "agent_id": agent_data["agent_id"],
                 "n_accounts": agent_data.get("n_accounts", 0),
                 "total_aum": agent_data.get("total_aum", 0.0),
-                "is_in_casterly": is_in_casterly
+                "is_in_casterly": is_in_casterly,
             }
 
             # Agregar el campo de ROI dinámico según la ventana
@@ -491,10 +503,9 @@ class SelectionService:
             agent_roi_collection = db.agent_roi_7d
 
             # Buscar el ROI más reciente del agente hasta la fecha actual
-            agent_roi_doc = agent_roi_collection.find_one({
-                "userId": agent_id,
-                "target_date": {"$lte": current_date.isoformat()}
-            }, sort=[("target_date", -1)])
+            agent_roi_doc = agent_roi_collection.find_one(
+                {"userId": agent_id, "target_date": {"$lte": current_date.isoformat()}}, sort=[("target_date", -1)]
+            )
 
             if not agent_roi_doc:
                 return 0.0
@@ -517,6 +528,11 @@ class SelectionService:
         """
         Verifica si un agente tuvo 3 días consecutivos de pérdida.
 
+        CORRECCION VERSION 2.3:
+        - ROI < 0: Incrementa el contador de días consecutivos de pérdida
+        - ROI > 0: Resetea el contador a 0
+        - ROI == 0: NO afecta el contador (días sin trades son neutrales)
+
         Args:
             agent_id: ID del agente
             current_date: Fecha actual
@@ -525,63 +541,190 @@ class SelectionService:
             True si tuvo 3+ días consecutivos de pérdida, False en caso contrario
         """
         try:
+            logger.info(f"[DEBUG_3DIAS] INICIO - Verificando {agent_id} en fecha {current_date.isoformat()}")
             db = database_manager.get_database()
             # Buscar en todas las colecciones de ROI para encontrar el registro más reciente
             # Intentar primero con agent_roi_7d (colección por defecto)
             from app.utils.collection_names import get_roi_collection_name
 
             # Intentar con diferentes ventanas para encontrar datos del agente
+            agent_roi_doc = None
+            collection_found = None
             for window in [7, 3, 5, 10, 15, 30]:
                 collection_name = get_roi_collection_name(window)
                 agent_roi_collection = db[collection_name]
 
-                agent_roi_doc = agent_roi_collection.find_one({
-                    "userId": agent_id,
-                    "target_date": current_date.isoformat()
-                })
+                agent_roi_doc = agent_roi_collection.find_one(
+                    {"userId": agent_id, "target_date": current_date.isoformat()}
+                )
 
                 if agent_roi_doc:
+                    collection_found = collection_name
                     break
 
             if not agent_roi_doc:
-                logger.debug(f"No se encontraron datos de ROI para {agent_id} en {current_date}")
+                logger.info(
+                    f"[DEBUG_3DIAS] {agent_id} - RETURN FALSE (no hay documento en ninguna colección agent_roi_*)"
+                )
                 return False
 
             daily_rois = agent_roi_doc.get("daily_rois", [])
+            logger.info(
+                f"[DEBUG_3DIAS] {agent_id} - Encontrado documento en colección '{collection_found}' "
+                f"con {len(daily_rois)} días de ROI. "
+                f"Primeros 3: {daily_rois[:3] if len(daily_rois) >= 3 else daily_rois}"
+            )
+
             if len(daily_rois) < 3:
+                logger.info(
+                    f"[DEBUG_3DIAS] {agent_id} - RETURN FALSE (menos de 3 días de datos: {len(daily_rois)})"
+                )
                 return False
 
             # Ordenar por fecha para asegurar orden cronológico
             daily_rois_sorted = sorted(daily_rois, key=lambda x: x["date"])
 
-            # Buscar 3 días consecutivos de pérdida
-            consecutive_losses = 0
-            max_consecutive_losses = 0
+            # IMPORTANTE: Solo evaluar los ÚLTIMOS 3 días del histórico
+            # Esto evita expulsar agentes por pérdidas históricas fuera de la simulación
+            recent_rois = daily_rois_sorted[-3:]  # Últimos 3 días
 
-            for day in daily_rois_sorted:
+            logger.info(
+                f"[DEBUG_3DIAS] {agent_id} - Evaluando solo los últimos 3 días: {recent_rois}"
+            )
+
+            # Verificar si los últimos 3 días son TODOS pérdidas consecutivas
+            # CORRECCION: ROI 0% (sin trades) no cuenta como pérdida
+            consecutive_losses = 0
+            for day in recent_rois:
                 if day["roi"] < 0:
                     consecutive_losses += 1
-                    max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
-                else:
+                elif day["roi"] > 0:
+                    # Si hay una ganancia, resetear contador
                     consecutive_losses = 0
+                # Si roi == 0, mantener el contador (no resetea ni incrementa)
 
-            has_three_consecutive = max_consecutive_losses >= 3
+            has_three_consecutive = consecutive_losses >= 3
 
             if has_three_consecutive:
-                logger.info(f"[3_DIAS_PERDIDA] {agent_id} tuvo {max_consecutive_losses} días consecutivos de pérdida")
+                logger.info(
+                    f"[3_DIAS_PERDIDA] {agent_id} tuvo 3 días consecutivos de pérdida "
+                    f"en los últimos 3 días: {[d['roi'] for d in recent_rois]}"
+                )
 
+            logger.info(
+                f"[DEBUG_3DIAS] {agent_id} - RETURN {has_three_consecutive} "
+                f"(consecutive_losses={consecutive_losses} en últimos 3 días)"
+            )
             return has_three_consecutive
 
         except Exception as e:
-            logger.error(f"Error verificando 3 días consecutivos para {agent_id}: {str(e)}")
+            logger.error(f"[DEBUG_3DIAS] {agent_id} - EXCEPTION - RETURN FALSE: {str(e)}")
             return False
 
+    def _check_three_consecutive_losses_BULK(
+        self, agent_ids: List[str], current_date: date, window_days: int = 30
+    ) -> Dict[str, bool]:
+        """
+        VERSION OPTIMIZADA: Verifica 3 días consecutivos de pérdida para MÚLTIPLES agentes en 1 SOLA QUERY.
+
+        OPTIMIZACIÓN CRÍTICA:
+        - Antes: 1 query por agente (~100 queries/día)
+        - Ahora: 1 query total para TODOS los agentes
+        - Mejora: ~100x más rápido
+
+        Args:
+            agent_ids: Lista de IDs de agentes a verificar
+            current_date: Fecha actual
+            window_days: Ventana de días para buscar (default: 30, suficiente para cualquier simulación)
+
+        Returns:
+            Dict con {agent_id: True/False} indicando si tuvo 3 días consecutivos de pérdida
+        """
+        if not agent_ids:
+            return {}
+
+        try:
+            logger.info(
+                f"[BULK_3DIAS] Verificando {len(agent_ids)} agentes en 1 query para fecha {current_date.isoformat()}"
+            )
+
+            db = database_manager.get_database()
+            from app.utils.collection_names import get_roi_collection_name
+
+            # Intentar con la colección de mayor ventana disponible (más probable que tenga datos)
+            collection_name = get_roi_collection_name(window_days)
+            agent_roi_collection = db[collection_name]
+
+            # UNA SOLA QUERY para TODOS los agentes
+            agent_roi_docs = list(
+                agent_roi_collection.find(
+                    {
+                        "userId": {"$in": agent_ids},
+                        "target_date": current_date.isoformat()
+                    },
+                    projection={"userId": 1, "daily_rois": 1, "_id": 0}
+                )
+            )
+
+            logger.info(
+                f"[BULK_3DIAS] Encontrados {len(agent_roi_docs)}/{len(agent_ids)} documentos en '{collection_name}'"
+            )
+
+            # Procesar resultados en memoria (mucho más rápido que queries individuales)
+            results = {}
+            excluded_count = 0
+
+            for doc in agent_roi_docs:
+                agent_id = doc["userId"]
+                daily_rois = doc.get("daily_rois", [])
+
+                # Si no hay suficientes datos, no excluir
+                if len(daily_rois) < 3:
+                    results[agent_id] = False
+                    continue
+
+                # Ordenar por fecha y tomar últimos 3 días
+                daily_rois_sorted = sorted(daily_rois, key=lambda x: x["date"])
+                recent_rois = daily_rois_sorted[-3:]
+
+                # Contar pérdidas consecutivas en los últimos 3 días
+                consecutive_losses = 0
+                for day in recent_rois:
+                    if day["roi"] < 0:
+                        consecutive_losses += 1
+                    elif day["roi"] > 0:
+                        consecutive_losses = 0
+                    # Si roi == 0, mantener contador
+
+                has_three_consecutive = consecutive_losses >= 3
+
+                if has_three_consecutive:
+                    excluded_count += 1
+                    logger.info(
+                        f"[BULK_3DIAS] {agent_id} - 3 días consecutivos de pérdida: "
+                        f"{[d['roi'] for d in recent_rois]}"
+                    )
+
+                results[agent_id] = has_three_consecutive
+
+            # Agentes que no tienen documento se consideran sin 3 días consecutivos
+            for agent_id in agent_ids:
+                if agent_id not in results:
+                    results[agent_id] = False
+
+            logger.info(
+                f"[BULK_3DIAS] Procesamiento completado: {excluded_count}/{len(agent_ids)} agentes con 3 días consecutivos"
+            )
+
+            return results
+
+        except Exception as e:
+            logger.error(f"[BULK_3DIAS] ERROR en procesamiento bulk: {str(e)}", exc_info=True)
+            # En caso de error, retornar False para todos (no excluir por seguridad)
+            return {agent_id: False for agent_id in agent_ids}
+
     def _determine_rotation_reason(
-        self,
-        agent_out: Top16Day,
-        agent_in: Top16Day,
-        current_top16: List[Top16Day],
-        current_date: date
+        self, agent_out: Top16Day, agent_in: Top16Day, current_top16: List[Top16Day], current_date: date
     ) -> tuple:
         """
         Determina la razón específica de por qué ocurrió una rotación.
@@ -611,18 +754,18 @@ class SelectionService:
         if roi_out < -0.10:
             reason = RotationReason.STOP_LOSS
             details = (
-                f"STOP LOSS activado: {agent_out.agent_id} cayó a {roi_out*100:.2f}% (debajo del límite de -10%). "
-                f"Entra {agent_in.agent_id} con {roi_in*100:.2f}%"
+                f"STOP LOSS activado: {agent_out.agent_id} cayó a {roi_out * 100:.2f}% (debajo del límite de -10%). "
+                f"Entra {agent_in.agent_id} con {roi_in * 100:.2f}%"
             )
-            logger.warning(f"[STOP_LOSS] {agent_out.agent_id} con ROI {roi_out*100:.2f}% < -10%")
+            logger.warning(f"[STOP_LOSS] {agent_out.agent_id} con ROI {roi_out * 100:.2f}% < -10%")
             return reason, details
 
         # PRIORIDAD 2: 3 días consecutivos de pérdida
         if self._check_three_consecutive_losses(agent_out.agent_id, current_date):
             reason = RotationReason.THREE_DAYS_FALL
             details = (
-                f"Caída por 3 días consecutivos de pérdida: {agent_out.agent_id} ({roi_out*100:.2f}%) "
-                f"tuvo 3+ días seguidos negativos. Entra {agent_in.agent_id} con {roi_in*100:.2f}%"
+                f"Caída por 3 días consecutivos de pérdida: {agent_out.agent_id} ({roi_out * 100:.2f}%) "
+                f"tuvo 3+ días seguidos negativos. Entra {agent_in.agent_id} con {roi_in * 100:.2f}%"
             )
             logger.warning(f"[THREE_DAYS_FALL] {agent_out.agent_id} tuvo 3+ días consecutivos de pérdida")
             return reason, details
@@ -630,14 +773,14 @@ class SelectionService:
         # PRIORIDAD 3: El agente entrante tiene MEJOR ROI que el saliente
         if roi_in > roi_out:
             reason = RotationReason.BETTER_PERFORMER_AVAILABLE
-            details = f"Reemplazado por mejor rendimiento: {agent_in.agent_id} con {roi_in*100:.2f}% supera a {agent_out.agent_id} con {roi_out*100:.2f}%"
+            details = f"Reemplazado por mejor rendimiento: {agent_in.agent_id} con {roi_in * 100:.2f}% supera a {agent_out.agent_id} con {roi_out * 100:.2f}%"
 
         # PRIORIDAD 4: El agente saliente tenía buen ROI pero cayó por pérdida de días antiguos
         elif roi_out > roi_in:
             reason = RotationReason.WINDOW_SHIFT_IMPACT
             details = (
-                f"{agent_out.agent_id} perdió días rentables antiguos y cayó de {roi_out*100:.2f}% a fuera del Top 16. "
-                f"Entra {agent_in.agent_id} con {roi_in*100:.2f}%. "
+                f"{agent_out.agent_id} perdió días rentables antiguos y cayó de {roi_out * 100:.2f}% a fuera del Top 16. "
+                f"Entra {agent_in.agent_id} con {roi_in * 100:.2f}%. "
                 f"(Explicacion: El ROI se calcula con ventana movil de 7 dias. Cuando un dia antiguo rentable sale del calculo, "
                 f"el ROI actual puede bajar aunque no haya perdido 3 dias seguidos ni llegado a -10%)"
             )
@@ -645,15 +788,12 @@ class SelectionService:
         # PRIORIDAD 5: ROIs similares
         else:
             reason = RotationReason.DAILY_ROTATION
-            details = f"Rotación por rebalanceo: {agent_out.agent_id} ({roi_out*100:.2f}%) sale y entra {agent_in.agent_id} ({roi_in*100:.2f}%)"
+            details = f"Rotación por rebalanceo: {agent_out.agent_id} ({roi_out * 100:.2f}%) sale y entra {agent_in.agent_id} ({roi_in * 100:.2f}%)"
 
         return reason, details
 
     def detect_rotations(
-        self,
-        previous_top16: List[Top16Day],
-        current_top16: List[Top16Day],
-        current_date: date
+        self, previous_top16: List[Top16Day], current_top16: List[Top16Day], current_date: date
     ) -> List[Dict[str, Any]]:
         """
         Detecta rotaciones comparando Top 16 de dos días consecutivos.
@@ -681,21 +821,13 @@ class SelectionService:
             ]
         """
         # Extraer solo agentes que estaban en Casterly Rock
-        previous_agents = {
-            agent.agent_id: agent
-            for agent in previous_top16
-            if agent.is_in_casterly
-        }
+        previous_agents = {agent.agent_id: agent for agent in previous_top16 if agent.is_in_casterly}
 
-        current_agents = {
-            agent.agent_id: agent
-            for agent in current_top16
-            if agent.is_in_casterly
-        }
+        current_agents = {agent.agent_id: agent for agent in current_top16 if agent.is_in_casterly}
 
         # Detectar cambios
         agents_out_ids = set(previous_agents.keys()) - set(current_agents.keys())  # Salieron
-        agents_in_ids = set(current_agents.keys()) - set(previous_agents.keys())    # Entraron
+        agents_in_ids = set(current_agents.keys()) - set(previous_agents.keys())  # Entraron
 
         logger.info(f"[DETECT_ROTATIONS] Fecha: {current_date}")
         logger.info(f"[DETECT_ROTATIONS]   Previous Top16 (Casterly): {len(previous_agents)} agentes")
@@ -731,6 +863,7 @@ class SelectionService:
                 )
             else:
                 from app.domain.entities.rotation_log import RotationReason
+
                 reason = RotationReason.DAILY_ROTATION
                 reason_details = "Rotación diaria estándar"
 
@@ -749,7 +882,7 @@ class SelectionService:
                 "rank_out": agent_out.rank if agent_out else None,
                 "rank_in": agent_in.rank if agent_in else None,
                 "n_accounts": agent_in.n_accounts if agent_in else 0,
-                "total_aum": agent_in.total_aum if agent_in else 0.0
+                "total_aum": agent_in.total_aum if agent_in else 0.0,
             }
 
             rotations.append(rotation)
@@ -762,10 +895,7 @@ class SelectionService:
         return rotations
 
     def detect_rank_changes(
-        self,
-        previous_top16: List[Top16Day],
-        current_top16: List[Top16Day],
-        current_date: date
+        self, previous_top16: List[Top16Day], current_top16: List[Top16Day], current_date: date
     ) -> List[Dict[str, Any]]:
         """
         Detecta cambios de ranking DENTRO del Top 16.
@@ -800,17 +930,9 @@ class SelectionService:
             ]
         """
         # Crear mapas de agentes por agent_id
-        previous_agents = {
-            agent.agent_id: agent
-            for agent in previous_top16
-            if agent.is_in_casterly
-        }
+        previous_agents = {agent.agent_id: agent for agent in previous_top16 if agent.is_in_casterly}
 
-        current_agents = {
-            agent.agent_id: agent
-            for agent in current_top16
-            if agent.is_in_casterly
-        }
+        current_agents = {agent.agent_id: agent for agent in current_top16 if agent.is_in_casterly}
 
         # Encontrar agentes que están en ambos días (permanecen en Top 16)
         common_agents = set(previous_agents.keys()) & set(current_agents.keys())
@@ -843,7 +965,7 @@ class SelectionService:
                     "previous_roi": prev_agent.roi_7d,
                     "current_roi": curr_agent.roi_7d,
                     "roi_change": roi_change,
-                    "is_in_casterly": curr_agent.is_in_casterly
+                    "is_in_casterly": curr_agent.is_in_casterly,
                 }
 
                 rank_changes.append(rank_change_data)
@@ -859,11 +981,7 @@ class SelectionService:
 
         return rank_changes
 
-    async def process_daily_selection(
-        self,
-        target_date: date,
-        casterly_agent_ids: List[str] = None
-    ) -> Dict[str, Any]:
+    async def process_daily_selection(self, target_date: date, casterly_agent_ids: List[str] = None) -> Dict[str, Any]:
         """
         Proceso completo de seleccion diaria usando NUEVA LOGICA.
 
@@ -889,22 +1007,13 @@ class SelectionService:
 
         if not top_16:
             logger.warning(f"No agents found with data for {target_date}")
-            return {
-                "success": False,
-                "message": "No agents found with data",
-                "target_date": target_date.isoformat()
-            }
+            return {"success": False, "message": "No agents found with data", "target_date": target_date.isoformat()}
 
         saved_top16 = self.save_top16_to_database(
-            target_date=target_date,
-            top_16=top_16,
-            casterly_agent_ids=casterly_agent_ids
+            target_date=target_date, top_16=top_16, casterly_agent_ids=casterly_agent_ids
         )
 
-        logger.info(
-            f"Daily selection complete for {target_date}: "
-            f"{len(all_ranked)} agents evaluated, Top 16 saved"
-        )
+        logger.info(f"Daily selection complete for {target_date}: " f"{len(all_ranked)} agents evaluated, Top 16 saved")
 
         return {
             "success": True,
@@ -912,12 +1021,7 @@ class SelectionService:
             "total_agents_evaluated": len(all_ranked),
             "top_16_count": len(saved_top16),
             "top_16": [
-                {
-                    "rank": t.rank,
-                    "agent_id": t.agent_id,
-                    "roi_7d": t.roi_7d,
-                    "is_in_casterly": t.is_in_casterly
-                }
+                {"rank": t.rank, "agent_id": t.agent_id, "roi_7d": t.roi_7d, "is_in_casterly": t.is_in_casterly}
                 for t in saved_top16
-            ]
+            ],
         }

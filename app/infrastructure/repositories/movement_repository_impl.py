@@ -1,10 +1,9 @@
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date
 from app.domain.repositories.movement_repository import MovementRepository
 from app.domain.entities.movement import Movement
 from app.config.database import database_manager
 from app.infrastructure.utils.data_normalizer import normalizer
-import pytz
 
 
 class MovementRepositoryImpl(MovementRepository):
@@ -13,24 +12,28 @@ class MovementRepositoryImpl(MovementRepository):
     """
 
     def __init__(self):
-        # Usar coleccion "movements" migrada (no mov07.10)
-        self.collection_name = "movements"
+        # Usar coleccion real mov07.10 con datos de produccion
+        self.collection_name = "mov07.10"
 
     def get_by_date_range(self, start_date: date, end_date: date, agent_id: Optional[str] = None) -> List[Movement]:
         """Obtiene movimientos en un rango de fechas, opcionalmente filtrados por agente."""
         collection = database_manager.get_collection(self.collection_name)
 
-        # Usar campo 'date' (formato ISO: "2025-09-01") agregado por migracion
+        # Convertir dates a formato ISO string para comparar con createdAt
+        start_datetime = f"{start_date.isoformat()}T00:00:00.000Z"
+        end_datetime = f"{end_date.isoformat()}T23:59:59.999Z"
+
+        # Usar createdAt para filtrar por fecha (estructura real de mov07.10)
         query = {
-            "date": {
-                "$gte": start_date.isoformat(),
-                "$lte": end_date.isoformat()
+            "createdAt": {
+                "$gte": start_datetime,
+                "$lte": end_datetime
             }
         }
 
-        # Usar 'agent_id' (no 'user') agregado por migracion
+        # Usar 'agente_id' (estructura real de mov07.10)
         if agent_id:
-            query["agent_id"] = agent_id
+            query["agente_id"] = agent_id
 
         docs = list(collection.find(query))
 
@@ -40,9 +43,17 @@ class MovementRepositoryImpl(MovementRepository):
         """Obtiene todos los movimientos de un agente en una fecha especifica."""
         collection = database_manager.get_collection(self.collection_name)
 
-        # Buscar por agent_id y date directamente (formato simplificado de movements)
-        date_str = target_date.isoformat()
-        docs = list(collection.find({"agent_id": agent_id, "date": date_str}))
+        # Buscar por agente_id (estructura real) y rango de fecha en createdAt
+        start_datetime = f"{target_date.isoformat()}T00:00:00.000Z"
+        end_datetime = f"{target_date.isoformat()}T23:59:59.999Z"
+
+        docs = list(collection.find({
+            "agente_id": agent_id,
+            "createdAt": {
+                "$gte": start_datetime,
+                "$lte": end_datetime
+            }
+        }))
 
         return [self._doc_to_entity(doc) for doc in docs]
 

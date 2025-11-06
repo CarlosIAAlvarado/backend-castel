@@ -1,5 +1,4 @@
 import logging
-from app.domain.events.base import DomainEvent
 from app.domain.events.agent_events import (
     AgentExitedEvent,
     AgentEnteredEvent,

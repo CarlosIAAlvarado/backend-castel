@@ -99,11 +99,6 @@ class DailyROIRepository:
                 upsert=True
             )
 
-            logger.debug(
-                f"ROI diario guardado: userId={daily_roi.userId}, "
-                f"fecha={daily_roi.date}, roi={daily_roi.roi_day:.4f}"
-            )
-
             return str(result.upserted_id) if result.upserted_id else "updated"
 
         except PyMongoError as e:
@@ -137,9 +132,6 @@ class DailyROIRepository:
             )
 
             if not doc:
-                logger.debug(
-                    f"ROI diario no encontrado: userId={userId}, fecha={target_date}"
-                )
                 return None
 
             return DailyROI(**doc)

@@ -118,7 +118,7 @@ class ROI7D(BaseModel):
         """Configuración de Pydantic."""
 
         json_encoders = {datetime: lambda v: v.isoformat()}
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "target_date": "2025-09-14",
                 "agente_id": "68db1be91caa2dbed6764c64",
