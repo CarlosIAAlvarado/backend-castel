@@ -1,16 +1,17 @@
 """
 Servicio para calcular el ROI de 7 días de un agente.
 
-Implementa la NUEVA LÓGICA:
+Implementa la NUEVA LÓGICA (compuesta):
 1. Calcular ROI diario para cada día en la ventana [T-7, T]
-2. Sumar todos los ROIs diarios
+2. Agregar usando fórmula compuesta (multiplicativa)
 3. Guardar resultado en agent_roi_7d
 
-Fórmula: ROI_7D = sum(ROI_dia_1, ROI_dia_2, ..., ROI_dia_8)
+Fórmula (financieramente correcta):
+ROI_7D = (1 + ROI_día_1) * (1 + ROI_día_2) * ... * (1 + ROI_día_N) - 1
 
 Author: Sistema Casterly Rock
 Date: 2025-10-19
-Version: 2.0
+Version: 2.1
 """
 
 import logging
@@ -185,8 +186,11 @@ class ROI7DCalculationService:
             for dr in daily_rois
         ]
 
-        # Calcular totales
-        roi_7d_total = sum(dr.roi_day for dr in daily_rois)
+        # Calcular ROI total usando fórmula compuesta (multiplicativa)
+        roi_compound = 1.0
+        for dr in daily_rois:
+            roi_compound *= (1.0 + dr.roi_day)
+        roi_7d_total = roi_compound - 1.0
         total_pnl_7d = sum(dr.total_pnl_day for dr in daily_rois)
         total_trades_7d = sum(dr.n_trades for dr in daily_rois)
 

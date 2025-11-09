@@ -299,7 +299,8 @@ def get_replacement_service(
     assignment_repo: AssignmentRepositoryDep,
     state_repo: AgentStateRepositoryDep,
     top16_repo: Top16RepositoryDep,
-    selection_service: Annotated[SelectionService, Depends(get_selection_service)]
+    selection_service: Annotated[SelectionService, Depends(get_selection_service)],
+    daily_roi_repo: DailyROIRepositoryDep
 ) -> ReplacementService:
     """
     Provider for ReplacementService.
@@ -307,7 +308,7 @@ def get_replacement_service(
     Returns:
         ReplacementService with injected dependencies
     """
-    return ReplacementService(rotation_log_repo, assignment_repo, state_repo, top16_repo, selection_service)
+    return ReplacementService(rotation_log_repo, assignment_repo, state_repo, top16_repo, selection_service, daily_roi_repo)
 
 
 def get_client_accounts_simulation_service() -> ClientAccountsSimulationService:

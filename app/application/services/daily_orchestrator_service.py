@@ -11,6 +11,7 @@ from app.application.services.simulation_response_builder import SimulationRespo
 from app.domain.repositories.agent_state_repository import AgentStateRepository
 from app.infrastructure.repositories.daily_roi_repository import DailyROIRepository
 from app.infrastructure.repositories.roi_7d_repository import ROI7DRepository
+from app.domain.constants.business_rules import STOP_LOSS_THRESHOLD, CONSECUTIVE_FALL_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -273,18 +274,24 @@ class DailyOrchestratorService:
     async def _process_rotations(
         self,
         target_date: date,
-        current_casterly_agents: list[str]
+        current_casterly_agents: list[str],
+        window_days: int = 7
     ) -> tuple[list[Dict[str, Any]], list[str]]:
         """
         Evalúa reglas de salida y ejecuta rotaciones necesarias.
+
+        Args:
+            target_date: Fecha objetivo
+            current_casterly_agents: Lista de agentes activos en Casterly
+            window_days: Ventana de días para ROI (default: 7)
 
         Returns:
             tuple: (rotations_executed, new_agents_to_classify)
         """
         evaluation_result = self.exit_rules_service.evaluate_all_agents(
             target_date,
-            fall_threshold=3,
-            stop_loss_threshold=-0.10
+            fall_threshold=CONSECUTIVE_FALL_THRESHOLD,
+            stop_loss_threshold=STOP_LOSS_THRESHOLD
         )
 
         agents_to_exit = evaluation_result["agents_to_exit"]
@@ -305,7 +312,8 @@ class DailyOrchestratorService:
             if mark_result["success"]:
                 replacement_agent = self.replacement_service.find_replacement_agent(
                     target_date,
-                    current_casterly_agents
+                    current_casterly_agents,
+                    window_days
                 )
 
                 if replacement_agent:
@@ -322,16 +330,18 @@ class DailyOrchestratorService:
 
                     state_out = self.state_repo.get_by_agent_and_date(agent_out, target_date)
                     roi_7d_out = state_out.roi_day if state_out else 0.0
-                    roi_total_out = state_out.roi_since_entry if state_out else 0.0
+                    # Obtener ROI total acumulado correcto
+                    roi_total_out = self.replacement_service.get_agent_total_roi(agent_out, target_date)
 
                     rotation_log = self.replacement_service.register_rotation(
                         date=target_date,
                         agent_out=agent_out,
                         agent_in=agent_in,
                         reason=reason_str,
-                        roi_7d_out=roi_7d_out,
+                        window_days=window_days,
+                        roi_window_out=roi_7d_out,
                         roi_total_out=roi_total_out,
-                        roi_7d_in=replacement_agent.get("roi_7d", 0.0),
+                        roi_window_in=replacement_agent.get("roi_7d", 0.0),
                         n_accounts=transfer_result["n_accounts_transferred"],
                         total_aum=transfer_result["total_aum_transferred"]
                     )
@@ -509,7 +519,8 @@ class DailyOrchestratorService:
         # 6. Procesar rotaciones (evaluar + ejecutar)
         rotations_executed, new_agents_to_classify = await self._process_rotations(
             target_date,
-            current_casterly_agents
+            current_casterly_agents,
+            window_days
         )
 
         # 7. Clasificar nuevos agentes que entraron por rotación
@@ -532,8 +543,8 @@ class DailyOrchestratorService:
         # Necesitamos volver a obtener evaluation_result para la respuesta
         evaluation_result = self.exit_rules_service.evaluate_all_agents(
             target_date,
-            fall_threshold=3,
-            stop_loss_threshold=-0.10
+            fall_threshold=CONSECUTIVE_FALL_THRESHOLD,
+            stop_loss_threshold=STOP_LOSS_THRESHOLD
         )
 
         result = self._build_response_data(

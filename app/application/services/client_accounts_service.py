@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional
 from pymongo.database import Database
 from pymongo import UpdateOne, InsertOne
 from app.utils.collection_names import get_top16_collection_name
+from app.application.services.client_accounts_window_service import ClientAccountsWindowService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class ClientAccountsService:
         self.snapshot_col = db.distribucion_cuentas_snapshot
         self.rebalanceo_log_col = db.rebalanceo_log
         self.top16_col = db.top16_by_day  # Tabla de Top 16 agentes
+        self.window_service = ClientAccountsWindowService(db)  # Servicio de ventanas
 
     def initialize_client_accounts(
         self, simulation_id: str, num_accounts: int = 1000, num_top_agents: int = 16
@@ -100,7 +102,7 @@ class ClientAccountsService:
                             "$set": {
                                 "agente_actual": account_data["agente_id"],
                                 "fecha_asignacion_agente": fecha_asignacion,
-                                "roi_agente_al_asignar": account_data["roi_agente"],
+                                "roi_agente_al_asignar": account_data["roi_agente"] * 100,  # Convertir a porcentaje
                                 "updated_at": fecha_asignacion,
                             }
                         },
@@ -116,7 +118,7 @@ class ClientAccountsService:
                     "win_rate": 0.0,
                     "agente_actual": account_data["agente_id"],
                     "fecha_asignacion_agente": fecha_asignacion,
-                    "roi_agente_al_asignar": account_data["roi_agente"],
+                    "roi_agente_al_asignar": account_data["roi_agente"] * 100,  # Convertir a porcentaje
                     "roi_acumulado_con_agente": 0.0,
                     "numero_cambios_agente": 0,
                     "estado": "activo",
@@ -191,6 +193,12 @@ class ClientAccountsService:
         - nombre_cliente
         - created_at
 
+        Además, limpia completamente las siguientes colecciones:
+        - historial_asignaciones_clientes
+        - distribucion_cuentas_snapshot
+        - rebalanceo_log
+        - client_accounts_simulations (snapshots de simulaciones anteriores)
+
         Returns:
             Dict con resumen del reset (numero de cuentas reseteadas)
 
@@ -242,11 +250,23 @@ class ClientAccountsService:
 
         logger.info("Limpiando snapshots antiguos...")
         self.snapshot_col.delete_many({})
-        logger.info("Snapshots limpiados")
+        logger.info("Snapshots limpiados (distribucion_cuentas_snapshot)")
+
+        # CRÍTICO: También limpiar la colección de snapshots de la simulación
+        logger.info("Limpiando snapshots de client_accounts_snapshots...")
+        client_snapshots_col = self.db["client_accounts_snapshots"]
+        deleted_count = client_snapshots_col.delete_many({}).deleted_count
+        logger.info(f"Snapshots limpiados: {deleted_count} documentos eliminados de client_accounts_snapshots")
 
         logger.info("Limpiando logs de rebalanceo...")
         self.rebalanceo_log_col.delete_many({})
         logger.info("Logs de rebalanceo limpiados")
+
+        # Limpiar snapshots de simulaciones anteriores
+        logger.info("Limpiando snapshots de simulaciones anteriores...")
+        simulations_col = self.db["client_accounts_simulations"]
+        simulations_col.delete_many({})
+        logger.info("Snapshots de simulaciones anteriores limpiados")
 
         return {
             "cuentas_reseteadas": cuentas_reseteadas,
@@ -255,6 +275,7 @@ class ClientAccountsService:
             "balance_inicial_preserved": True,
             "historial_limpiado": True,
             "snapshots_limpiados": True,
+            "simulaciones_anteriores_limpiadas": True,
         }
 
     def _get_top16_agents_for_redistribution(
@@ -392,7 +413,7 @@ class ClientAccountsService:
                                 "$set": {
                                     "agente_actual": agente_id,
                                     "fecha_asignacion_agente": fecha_actual,
-                                    "roi_agente_al_asignar": roi_agente,
+                                    "roi_agente_al_asignar": roi_agente * 100,  # Convertir a porcentaje
                                     "roi_acumulado_con_agente": 0.0,
                                     "updated_at": fecha_actual,
                                 },
@@ -773,12 +794,17 @@ class ClientAccountsService:
             # Calcular ROI ganado con el agente actual
             roi_acumulado_con_agente = roi_agente_actual - roi_agente_al_asignar
 
-            # Calcular nuevo balance
+            # CORREGIDO: Calcular balance_actual desde balance_inicial
+            # roi_acumulado_con_agente ya es un valor ACUMULADO, no incremental
+            # Por lo tanto, debe aplicarse sobre balance_inicial, no sobre balance_anterior
             balance_inicial = cuenta["balance_inicial"]
-            roi_total_anterior = cuenta["roi_total"]
-            roi_total_nuevo = roi_total_anterior + roi_acumulado_con_agente
+            balance_actual = balance_inicial * (1 + roi_acumulado_con_agente / 100)
 
-            balance_actual = balance_inicial * (1 + roi_total_nuevo / 100)
+            # Prevenir balance negativo
+            balance_actual = max(0.0, balance_actual)
+
+            # Calcular ROI total respecto al balance inicial (para tracking)
+            roi_total_nuevo = ((balance_actual / balance_inicial) - 1) * 100 if balance_inicial > 0 else 0.0
 
             # Obtener Win Rate del agente actual (directamente por agent_id)
             win_rate = win_rate_map.get(agente_id, 0.0)
@@ -931,7 +957,12 @@ class ClientAccountsService:
             ],
         }
 
-    def get_client_accounts_stats(self, simulation_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_client_accounts_stats(
+        self,
+        simulation_id: Optional[str] = None,
+        window_days: int = 30,
+        target_date: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Obtiene estadísticas agregadas de las cuentas de clientes.
 
@@ -942,14 +973,30 @@ class ClientAccountsService:
         - Win rate promedio
 
         Args:
-            simulation_id: ID de la simulación (opcional, por ahora no se usa)
+            simulation_id: ID de la simulación
+            window_days: Ventana de días para calcular ROI (default: 30)
 
         Returns:
             Dict con estadísticas agregadas
         """
-        logger.info(f"Calculando estadísticas de cuentas para simulación {simulation_id}")
+        logger.info(
+            f"Calculando estadísticas de cuentas para simulación {simulation_id}, "
+            f"window_days={window_days}"
+        )
 
-        # Pipeline de agregación en MongoDB
+        # Si hay simulation_id, usar servicio de ventanas para filtrado real
+        if simulation_id:
+            try:
+                return self.window_service.get_window_stats(simulation_id, window_days, target_date)
+            except ValueError:
+                # ValueError indica datos no encontrados - propagar al endpoint para devolver 404
+                raise
+            except Exception as e:
+                # Solo hacer fallback para errores inesperados del sistema
+                logger.error(f"Error inesperado al calcular stats con ventana: {e}", exc_info=True)
+                logger.warning("Fallback a cálculo de stats totales")
+
+        # Fallback: cálculo tradicional desde cuentas_trading (sin filtrado)
         pipeline = [
             # 1. Filtrar solo cuentas activas
             {"$match": {"estado": "activo"}},
@@ -983,7 +1030,7 @@ class ClientAccountsService:
         stats = result[0]
 
         logger.info(
-            f"Estadísticas calculadas: {stats['total_cuentas']} cuentas, "
+            f"Estadísticas calculadas (fallback): {stats['total_cuentas']} cuentas, "
             f"balance total: ${stats['balance_total']:,.2f}"
         )
 
@@ -1002,6 +1049,8 @@ class ClientAccountsService:
         limit: int = 1000,
         agente_id: Optional[str] = None,
         search: Optional[str] = None,
+        window_days: int = 30,
+        target_date: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Obtiene lista de cuentas con formato compatible con frontend.
@@ -1013,6 +1062,7 @@ class ClientAccountsService:
         - NO incluye historial (para performance)
         - Devuelve dict con total de registros para paginación
         - Soporta búsqueda por texto
+        - Calcula ROI para ventana específica usando snapshots
 
         Args:
             simulation_id: ID de la simulación (opcional)
@@ -1020,12 +1070,37 @@ class ClientAccountsService:
             limit: Número máximo de registros (default: 1000)
             agente_id: Filtro opcional por agente
             search: Término de búsqueda (nombre, cuenta_id o agente)
+            window_days: Ventana de días para calcular ROI (default: 30)
 
         Returns:
             Dict con {accounts: [...], total: X, skip: X, limit: X}
         """
-        logger.info(f"Obteniendo cuentas (skip={skip}, limit={limit}, agente={agente_id}, search={search})")
+        logger.info(
+            f"Obteniendo cuentas (skip={skip}, limit={limit}, agente={agente_id}, "
+            f"search={search}, window_days={window_days})"
+        )
 
+        # Si se proporciona simulation_id, usar window service para filtrado real
+        if simulation_id:
+            try:
+                return self.window_service.get_accounts_list_with_window(
+                    simulation_id=simulation_id,
+                    window_days=window_days,
+                    skip=skip,
+                    limit=limit,
+                    agente_id=agente_id,
+                    search=search,
+                    target_date=target_date
+                )
+            except ValueError:
+                # ValueError indica datos no encontrados - propagar al endpoint para devolver 404
+                raise
+            except Exception as e:
+                # Solo hacer fallback para errores inesperados del sistema
+                logger.error(f"Error inesperado al obtener cuentas con ventana: {e}", exc_info=True)
+                logger.warning("Fallback a cálculo de cuentas totales sin filtrado por ventana")
+
+        # Fallback: cálculo tradicional desde cuentas_trading (sin filtrado por ventana)
         # Construir query
         query = {"estado": "activo"}
 
@@ -1209,7 +1284,7 @@ class ClientAccountsService:
                 "$set": {
                     "agente_actual": mejor_agente["agente_id"],
                     "fecha_asignacion_agente": fecha_rebalanceo,
-                    "roi_agente_al_asignar": mejor_agente["roi_7d"],
+                    "roi_agente_al_asignar": mejor_agente["roi_7d"] * 100,  # Convertir a porcentaje
                     "roi_acumulado_con_agente": 0.0,
                     "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0) + 1,
                     "updated_at": fecha_rebalanceo,
@@ -1526,7 +1601,7 @@ class ClientAccountsService:
                         "$set": {
                             "agente_actual": agente_sustituto,
                             "fecha_asignacion_agente": fecha_rotacion,
-                            "roi_agente_al_asignar": agente_sustituto_info["roi_7d"],
+                            "roi_agente_al_asignar": agente_sustituto_info["roi_7d"] * 100,  # Convertir a porcentaje
                             "roi_acumulado_con_agente": 0.0,
                             "numero_cambios_agente": cuenta.get("numero_cambios_agente", 0) + 1,
                             "updated_at": fecha_rotacion,

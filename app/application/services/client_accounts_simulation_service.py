@@ -544,14 +544,20 @@ class ClientAccountsSimulationService:
             roi_agente_al_asignar = cuenta["roi_agente_al_asignar"]
             roi_acumulado_con_agente = roi_agente_actual - roi_agente_al_asignar
 
-            roi_historico_anterior = cuenta.get("roi_historico_anterior", 0.0)
-            roi_total_nuevo = roi_historico_anterior + roi_acumulado_con_agente
-
+            # CORREGIDO: Calcular balance_actual desde balance_inicial
+            # roi_acumulado_con_agente ya es un valor ACUMULADO, no incremental
+            # Por lo tanto, debe aplicarse sobre balance_inicial, no sobre balance_anterior
             balance_inicial = cuenta["balance_inicial"]
-            balance_actual = balance_inicial * (1 + roi_total_nuevo / 100)
+            balance_actual = balance_inicial * (1 + roi_acumulado_con_agente / 100)
 
             # Prevenir balance negativo (no se puede perder más del 100%)
             balance_actual = max(0.0, balance_actual)
+
+            # Calcular ROI total respecto al balance inicial (para tracking)
+            roi_total_nuevo = ((balance_actual / balance_inicial) - 1) * 100 if balance_inicial > 0 else 0.0
+
+            # Guardar ROI histórico anterior para próxima rotación
+            roi_historico_anterior = cuenta.get("roi_historico_anterior", 0.0)
 
             win_rate = win_rate_map.get(agente_id, 0.0)
 
@@ -621,10 +627,14 @@ class ClientAccountsSimulationService:
         3. _generate_roi_update_bulk_ops: Genera operaciones bulk
         4. _execute_roi_update_bulk_ops: Ejecuta operaciones
 
-        Formula ROI:
+        Formula ROI CORRECTA:
         roi_con_agente_actual = roi_agente_actual - roi_agente_al_asignar
-        roi_total = roi_historico_anterior + roi_con_agente_actual
-        balance_actual = balance_inicial * (1 + roi_total / 100)
+        balance_actual = balance_inicial × (1 + roi_con_agente_actual / 100)
+        roi_total = ((balance_actual / balance_inicial) - 1) × 100
+
+        Nota: Se usa balance_inicial porque roi_con_agente_actual ya es un valor
+        ACUMULADO, no incremental. Aplicarlo sobre balance_anterior causaría
+        crecimiento exponencial incorrecto.
 
         Args:
             target_date: Fecha objetivo

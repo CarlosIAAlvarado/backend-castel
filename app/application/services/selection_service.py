@@ -13,6 +13,7 @@ from app.config.database import database_manager
 from app.infrastructure.repositories.top16_repository_impl import Top16RepositoryImpl
 from app.utils.collection_names import get_top16_collection_name
 from app.infrastructure.config.logging_config import get_logger
+from app.domain.constants.business_rules import CONSECUTIVE_FALL_THRESHOLD, MIN_AUM_DEFAULT
 
 logger = get_logger("selection_service")
 
@@ -61,10 +62,11 @@ class SelectionService:
 
     def get_all_agents_from_balances(self, target_date: date) -> List[str]:
         """
-        Obtiene la lista de todos los agentes únicos que tienen balances en la ventana ROI_7D.
+        Obtiene la lista de todos los agentes únicos que tienen balances en TODA la simulación.
 
-        CAMBIO VERSION 2.2: Ahora busca en toda la ventana de 8 días (target_date - 7 hasta target_date)
-        en lugar de solo en target_date.
+        CAMBIO VERSION 3.0: Ahora busca desde el inicio de la simulación hasta target_date
+        para asegurar que TODOS los agentes con datos sean procesados, sin excluir ninguno
+        por tener datos solo en fechas anteriores.
 
         Args:
             target_date: Fecha objetivo (final de la ventana)
@@ -72,11 +74,22 @@ class SelectionService:
         Returns:
             Lista de userIds únicos (ej: ["OKX_JH1", "OKX_JH2", ...])
         """
-        # Calcular ventana de 8 días
-        window_start = target_date - timedelta(days=7)
+        # Obtener fecha de inicio de la simulación desde system_config
+        db = database_manager.get_database()
+        config_col = db["system_config"]
+        config = config_col.find_one({"config_key": "last_simulation"})
+
+        if config and "start_date" in config:
+            window_start = date.fromisoformat(config["start_date"])
+            logger.info(f"Usando fecha de inicio de simulación desde system_config: {window_start}")
+        else:
+            # Fallback: usar ventana de 8 días si no hay configuración
+            window_start = target_date - timedelta(days=7)
+            logger.warning(f"No se encontró start_date en system_config, usando fallback de 8 días: {window_start}")
+
         window_end = target_date
 
-        logger.info(f"Buscando agentes en ventana: {window_start} -> {window_end}")
+        logger.info(f"Buscando TODOS los agentes desde {window_start} hasta {window_end}")
 
         # Buscar balances en toda la ventana
         balances = self.balance_repo.get_all_by_date_range(window_start, window_end)
@@ -141,7 +154,7 @@ class SelectionService:
             raise
 
     async def calculate_all_agents_roi_7d(
-        self, target_date: date, agent_ids: List[str] = None, min_aum: float = 0.01
+        self, target_date: date, agent_ids: List[str] = None, min_aum: float = MIN_AUM_DEFAULT
     ) -> List[Dict[str, Any]]:
         """
         Calcula el ROI_7D de todos los agentes usando la NUEVA LOGICA.
@@ -155,7 +168,7 @@ class SelectionService:
         Args:
             target_date: Fecha objetivo
             agent_ids: Lista de agentes a evaluar (opcional, si None obtiene todos)
-            min_aum: Balance minimo requerido para considerar al agente viable (default: 0.01)
+            min_aum: Balance minimo requerido para considerar al agente viable (default: MIN_AUM_DEFAULT)
 
         Returns:
             Lista de diccionarios con agent_id, roi_7d, total_pnl, balance, n_accounts, aum
@@ -201,7 +214,7 @@ class SelectionService:
         return agents_data
 
     async def calculate_all_agents_roi_7d_ULTRA_FAST(
-        self, target_date: date, agent_ids: List[str] = None, min_aum: float = 0.01, window_days: int = 7
+        self, target_date: date, agent_ids: List[str] = None, min_aum: float = MIN_AUM_DEFAULT, window_days: int = 7
     ) -> List[Dict[str, Any]]:
         """
         VERSION 4.0 - ULTRA OPTIMIZADO con Bulk Processing + Ventanas Dinámicas.
@@ -215,7 +228,7 @@ class SelectionService:
         Args:
             target_date: Fecha objetivo
             agent_ids: Lista de agentes a evaluar (opcional, si None obtiene todos)
-            min_aum: Balance minimo requerido (default: 0.01)
+            min_aum: Balance minimo requerido (default: MIN_AUM_DEFAULT)
             window_days: Ventana de días para ROI (3, 5, 7, 10, 15, 30). Default: 7
 
         Returns:
@@ -238,20 +251,22 @@ class SelectionService:
         for user_id, roi_data in bulk_results.items():
             # Filtrar por min_aum
             if roi_data["balance_current"] > min_aum:
-                agents_data.append(
-                    {
-                        "agent_id": user_id,
-                        "userId": user_id,
-                        "roi_7d": roi_data["roi_7d_total"],
-                        "total_pnl": roi_data["total_pnl_7d"],
-                        "balance_current": roi_data["balance_current"],
-                        "n_accounts": 1,
-                        "total_aum": roi_data["balance_current"],
-                        "total_trades_7d": roi_data["total_trades_7d"],
-                        "positive_days": roi_data["positive_days"],
-                        "negative_days": roi_data["negative_days"],
-                    }
-                )
+                entry = {
+                    "agent_id": user_id,
+                    "userId": user_id,
+                    # Campo legacy usado a lo largo del código; contiene ROI de la ventana solicitada
+                    "roi_7d": roi_data["roi_7d_total"],
+                    # Alias dinámico consistente con la ventana actual, para consumidores que esperan roi_{window}d
+                    f"roi_{window_days}d": roi_data["roi_7d_total"],
+                    "total_pnl": roi_data["total_pnl_7d"],
+                    "balance_current": roi_data["balance_current"],
+                    "n_accounts": 1,
+                    "total_aum": roi_data["balance_current"],
+                    "total_trades_7d": roi_data["total_trades_7d"],
+                    "positive_days": roi_data["positive_days"],
+                    "negative_days": roi_data["negative_days"],
+                }
+                agents_data.append(entry)
 
         logger.info(
             f"ROI_{window_days}D calculation complete (ULTRA FAST): {len(agents_data)}/{len(agent_ids)} agents "
@@ -319,7 +334,7 @@ class SelectionService:
 
         VERSION 5.0 - CON EXPULSION AUTOMATICA:
         - Usa bulk processing para calcular ROI (2 queries en vez de ~800)
-        - ROI = suma de ROIs diarios (no diferencia de balances)
+        - ROI = compuesto de ROIs diarios (no diferencia de balances)
         - Soporta ventanas dinámicas (3, 5, 7, 10, 15, 30 días)
         - EXPULSION AUTOMATICA: Agentes con 3 días consecutivos de pérdida son excluidos del Top 16
 
@@ -389,10 +404,43 @@ class SelectionService:
         if excluded_agents_3day:
             logger.info(f"[EXPULSION_3_DIAS] Total excluidos: {len(excluded_agents_3day)} - {excluded_agents_3day}")
 
-        # Rankear solo los agentes que pasaron el filtro
-        ranked_agents = self.rank_agents_by_roi_7d(agents_eligible, window_days=window_days)
+        # APLICAR CRITERIOS DE ENTRADA (Sección 4 de especificación)
+        # Prioridad 1: Agentes con ROI positivo (mejor historial)
+        # Prioridad 2: Agentes con ROI >= -10% (ya filtrados arriba)
+        agents_with_positive_roi = [agent for agent in agents_eligible if agent.get(roi_field, 0.0) > 0]
+        agents_with_negative_roi = [agent for agent in agents_eligible if agent.get(roi_field, 0.0) <= 0]
 
-        top_16 = ranked_agents[:16]
+        logger.info(
+            f"[SELECTION_CRITERIA] Total elegibles: {len(agents_eligible)} "
+            f"(Positivos: {len(agents_with_positive_roi)}, Negativos: {len(agents_with_negative_roi)})"
+        )
+
+        # Rankear agentes positivos primero, luego negativos
+        ranked_positive = self.rank_agents_by_roi_7d(agents_with_positive_roi, window_days=window_days)
+        ranked_negative = self.rank_agents_by_roi_7d(agents_with_negative_roi, window_days=window_days)
+
+        # Combinar: primero positivos, luego negativos (solo si es necesario)
+        if len(ranked_positive) >= 16:
+            # Hay suficientes agentes con ROI positivo
+            top_16 = ranked_positive[:16]
+            logger.info(f"[SELECTION] Top 16 seleccionado SOLO con agentes con ROI positivo")
+        else:
+            # Necesitamos completar con agentes de ROI negativo (pero > -10%)
+            slots_needed = 16 - len(ranked_positive)
+            top_16 = ranked_positive + ranked_negative[:slots_needed]
+            logger.warning(
+                f"[SELECTION] Top 16 completado con {len(ranked_positive)} positivos y {slots_needed} negativos (ROI entre -10% y 0%)"
+            )
+
+        # Todos los agentes rankeados (para el resultado completo)
+        ranked_agents = ranked_positive + ranked_negative
+
+        # Normalizar ranks tras combinar listas: asegurar 1..N sin duplicados
+        for idx, agent in enumerate(top_16, start=1):
+            agent["rank"] = idx
+
+        for idx, agent in enumerate(ranked_agents, start=1):
+            agent["rank"] = idx
 
         if top_16:
             logger.info(
@@ -603,7 +651,7 @@ class SelectionService:
                     consecutive_losses = 0
                 # Si roi == 0, mantener el contador (no resetea ni incrementa)
 
-            has_three_consecutive = consecutive_losses >= 3
+            has_three_consecutive = consecutive_losses >= CONSECUTIVE_FALL_THRESHOLD
 
             if has_three_consecutive:
                 logger.info(
@@ -613,7 +661,7 @@ class SelectionService:
 
             logger.info(
                 f"[DEBUG_3DIAS] {agent_id} - RETURN {has_three_consecutive} "
-                f"(consecutive_losses={consecutive_losses} en últimos 3 días)"
+                f"(consecutive_losses={consecutive_losses} en últimos {CONSECUTIVE_FALL_THRESHOLD} días)"
             )
             return has_three_consecutive
 
@@ -696,7 +744,7 @@ class SelectionService:
                         consecutive_losses = 0
                     # Si roi == 0, mantener contador
 
-                has_three_consecutive = consecutive_losses >= 3
+                has_three_consecutive = consecutive_losses >= CONSECUTIVE_FALL_THRESHOLD
 
                 if has_three_consecutive:
                     excluded_count += 1
@@ -729,12 +777,10 @@ class SelectionService:
         """
         Determina la razón específica de por qué ocurrió una rotación.
 
-        CONDICIONES DE ROTACIÓN (verificadas en orden de prioridad):
+        SEGÚN ESPECIFICACIÓN - Hay TRES formas de salir del Top 16:
         1. STOP_LOSS: ROI del agente saliente cayó por debajo de -10%
         2. THREE_DAYS_FALL: Agente tuvo 3 o más días consecutivos de pérdida
-        3. BETTER_PERFORMER_AVAILABLE: Agente entrante tiene mejor ROI que el saliente
-        4. WINDOW_SHIFT_IMPACT: Agente saliente perdió días rentables antiguos de la ventana móvil
-        5. DAILY_ROTATION: ROIs similares, rotación por rebalanceo
+        3. RANKING_DISPLACEMENT: Desplazado por ranking natural (otro agente tiene mejor ROI)
 
         Args:
             agent_out: Agente que salió del Top 16
@@ -750,17 +796,17 @@ class SelectionService:
         roi_out = agent_out.roi_7d
         roi_in = agent_in.roi_7d
 
-        # PRIORIDAD 1: Stop Loss de -10%
-        if roi_out < -0.10:
+        # REGLA 1: Stop Loss de -10% (tiene prioridad sobre las demás)
+        if roi_out <= -0.10:
             reason = RotationReason.STOP_LOSS
             details = (
                 f"STOP LOSS activado: {agent_out.agent_id} cayó a {roi_out * 100:.2f}% (debajo del límite de -10%). "
                 f"Entra {agent_in.agent_id} con {roi_in * 100:.2f}%"
             )
-            logger.warning(f"[STOP_LOSS] {agent_out.agent_id} con ROI {roi_out * 100:.2f}% < -10%")
+            logger.warning(f"[STOP_LOSS] {agent_out.agent_id} con ROI {roi_out * 100:.2f}% <= -10%")
             return reason, details
 
-        # PRIORIDAD 2: 3 días consecutivos de pérdida
+        # REGLA 2: 3 días consecutivos de pérdida
         if self._check_three_consecutive_losses(agent_out.agent_id, current_date):
             reason = RotationReason.THREE_DAYS_FALL
             details = (
@@ -770,25 +816,14 @@ class SelectionService:
             logger.warning(f"[THREE_DAYS_FALL] {agent_out.agent_id} tuvo 3+ días consecutivos de pérdida")
             return reason, details
 
-        # PRIORIDAD 3: El agente entrante tiene MEJOR ROI que el saliente
-        if roi_in > roi_out:
-            reason = RotationReason.BETTER_PERFORMER_AVAILABLE
-            details = f"Reemplazado por mejor rendimiento: {agent_in.agent_id} con {roi_in * 100:.2f}% supera a {agent_out.agent_id} con {roi_out * 100:.2f}%"
-
-        # PRIORIDAD 4: El agente saliente tenía buen ROI pero cayó por pérdida de días antiguos
-        elif roi_out > roi_in:
-            reason = RotationReason.WINDOW_SHIFT_IMPACT
-            details = (
-                f"{agent_out.agent_id} perdió días rentables antiguos y cayó de {roi_out * 100:.2f}% a fuera del Top 16. "
-                f"Entra {agent_in.agent_id} con {roi_in * 100:.2f}%. "
-                f"(Explicacion: El ROI se calcula con ventana movil de 7 dias. Cuando un dia antiguo rentable sale del calculo, "
-                f"el ROI actual puede bajar aunque no haya perdido 3 dias seguidos ni llegado a -10%)"
-            )
-
-        # PRIORIDAD 5: ROIs similares
-        else:
-            reason = RotationReason.DAILY_ROTATION
-            details = f"Rotación por rebalanceo: {agent_out.agent_id} ({roi_out * 100:.2f}%) sale y entra {agent_in.agent_id} ({roi_in * 100:.2f}%)"
+        # REGLA 3: Desplazamiento por ranking natural
+        # El agente simplemente quedó fuera del Top 16 porque otro agente tiene mejor ROI
+        reason = RotationReason.RANKING_DISPLACEMENT
+        details = (
+            f"Desplazamiento por ranking: {agent_out.agent_id} ({roi_out * 100:.2f}%) "
+            f"salió del Top 16 por ranking natural. Entra {agent_in.agent_id} con {roi_in * 100:.2f}%"
+        )
+        logger.info(f"[RANKING_DISPLACEMENT] {agent_out.agent_id} desplazado por mejor rendimiento de {agent_in.agent_id}")
 
         return reason, details
 

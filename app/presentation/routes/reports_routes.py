@@ -217,39 +217,54 @@ async def _calculate_dynamic_roi(
     executed_window_days: int
 ) -> list[Dict[str, Any]]:
     """
-    Calcula ROI dinámicamente para una ventana solicitada usando datos de daily_roi_calculation.
+    Calcula ROI ACUMULADO para una ventana solicitada usando datos de daily_roi_calculation.
+
+    IMPORTANTE: Las ventanas simulan "como si la simulacion hubiera durado solo X dias"
+    - Ventana 7D = ROI acumulado de los PRIMEROS 7 dias (no los ultimos 7)
+    - Ventana 30D = ROI acumulado de los PRIMEROS 30 dias (simulacion completa)
 
     Args:
-        target_date: Fecha objetivo (fecha final de la ventana)
-        requested_window_days: Ventana solicitada (3, 5, 7, 10, 15 días)
-        executed_window_days: Ventana de la simulación ejecutada (ej: 30 días) - NO USADO, se usa daily_roi_calculation directamente
+        target_date: Fecha final de la simulacion ejecutada
+        requested_window_days: Ventana solicitada (3, 5, 7, 10, 15, 30 dias)
+        executed_window_days: Ventana de la simulacion ejecutada (ej: 30 dias)
 
     Returns:
-        Lista de documentos ROI calculados dinámicamente
+        Lista de documentos ROI calculados con ROI acumulado desde el inicio
     """
     from datetime import timedelta
 
     db = database_manager.get_database()
 
     # IMPORTANTE: La colección se llama "daily_roi_calculation" (sin sufijo _Xd)
-    # Esta es una colección temporal que contiene TODOS los días de la simulación ejecutada
     daily_roi_collection_name = "daily_roi_calculation"
     daily_roi_collection = db[daily_roi_collection_name]
 
-    # Calcular fechas del rango de la ventana solicitada
-    start_date = target_date - timedelta(days=requested_window_days - 1)
+    # Obtener fecha de inicio de la simulacion desde system_config
+    system_config_col = db["system_config"]
+    config = system_config_col.find_one({"config_key": "last_simulation"})
 
-    logger.info(f"Calculando ROI dinámico desde {start_date.isoformat()} hasta {target_date.isoformat()}")
+    if not config or "start_date" not in config:
+        logger.error("No se encontro start_date en system_config")
+        return []
+
+    simulation_start_date = date.fromisoformat(config["start_date"])
+
+    # Calcular fecha final de la ventana (desde inicio + X dias)
+    # Ventana 7D = primeros 7 dias (dia 1 al dia 7)
+    end_date = simulation_start_date + timedelta(days=requested_window_days - 1)
+    start_date = simulation_start_date
+
+    logger.info(f"Calculando ROI ACUMULADO desde {start_date.isoformat()} hasta {end_date.isoformat()} (ventana {requested_window_days}D)")
 
     # Obtener todos los ROIs diarios en el rango
     daily_roi_docs = list(daily_roi_collection.find({
         "date": {
             "$gte": start_date.isoformat(),
-            "$lte": target_date.isoformat()
+            "$lte": end_date.isoformat()
         }
     }))
 
-    logger.info(f"Encontrados {len(daily_roi_docs)} documentos en {daily_roi_collection_name} para el rango {start_date.isoformat()} - {target_date.isoformat()}")
+    logger.info(f"Encontrados {len(daily_roi_docs)} documentos en {daily_roi_collection_name} para el rango {start_date.isoformat()} - {end_date.isoformat()}")
 
     if not daily_roi_docs:
         # Intentar obtener cualquier documento para verificar qué fechas existen
@@ -285,11 +300,8 @@ async def _calculate_dynamic_roi(
         # Ordenar por fecha para asegurar el orden correcto
         daily_roi_list_sorted = sorted(daily_roi_list, key=lambda x: x["date"])
 
-        # ROI acumulado = (1 + roi_day1) * (1 + roi_day2) * ... - 1
-        roi_accumulated = 1.0
-        for item in daily_roi_list_sorted:
-            roi_accumulated *= (1.0 + item["roi"])
-        roi_accumulated -= 1.0
+        # ROI acumulado = suma simple de ROIs diarios
+        roi_accumulated = sum(item["roi"] for item in daily_roi_list_sorted)
 
         # El ROI del último día es el del día más reciente
         last_day_roi = daily_roi_list_sorted[-1]["roi"] if daily_roi_list_sorted else 0.0
@@ -307,9 +319,9 @@ async def _calculate_dynamic_roi(
         roi_docs.append({
             "agent_id": agent_id,
             "userId": agent_id,  # Agregar userId para compatibilidad
-            "target_date": target_date.isoformat(),
+            "target_date": end_date.isoformat(),
             "window_start": start_date.isoformat(),
-            "window_end": target_date.isoformat(),
+            "window_end": end_date.isoformat(),
             f"roi_{requested_window_days}d": roi_accumulated,
             "roi_7d_total": roi_accumulated,  # Campo legacy para compatibilidad (se usa en _calculate_kpis_from_roi_docs)
             "roi_day": last_day_roi,  # ROI del último día
@@ -317,7 +329,7 @@ async def _calculate_dynamic_roi(
             "window_days": requested_window_days
         })
 
-    logger.info(f"ROI dinámico calculado para {len(roi_docs)} agentes (con daily_rois de {requested_window_days} días)")
+    logger.info(f"ROI ACUMULADO calculado para {len(roi_docs)} agentes (primeros {requested_window_days} dias)")
     return roi_docs
 
 
@@ -901,7 +913,7 @@ async def get_top_agents(
 
     if requested_window_days != executed_window_days:
         # Calcular Top 16 dinámicamente usando daily_roi_calculation
-        logger.info(f"Calculando Top 16 dinámicamente para ventana {requested_window_days}D")
+        logger.info(f"Calculando Top 16 con ROI acumulado para ventana {requested_window_days}D")
 
         # Calcular ROI dinámicamente
         roi_docs = await _calculate_dynamic_roi(
@@ -918,78 +930,140 @@ async def get_top_agents(
                 "top16": [],
             }
 
-        # Ordenar por ROI y tomar los 16 mejores
-        sorted_roi_docs = sorted(roi_docs, key=lambda x: x.get("roi_7d_total", 0.0), reverse=True)
+        # Filtrar agentes que violan Stop Loss -10% y ordenar por ROI
+        roi_field_name = f"roi_{requested_window_days}d"
+        filtered_roi_docs = [doc for doc in roi_docs if doc.get(roi_field_name, 0.0) >= -0.10]
+        sorted_roi_docs = sorted(filtered_roi_docs, key=lambda x: x.get(roi_field_name, 0.0), reverse=True)
         top_16_agents = sorted_roi_docs[:16]
+
+        # Log de agentes excluidos por Stop Loss
+        excluded_count = len(roi_docs) - len(filtered_roi_docs)
+        if excluded_count > 0:
+            logger.info(f"[EXPULSION_STOP_LOSS] {excluded_count} agentes excluidos por Stop Loss -10% en calculo dinamico")
+
+        # Obtener n_accounts y total_aum desde assignments actuales
+        assignments_col = db["assignments"]
+        aum_data_by_agent = {}
+
+        # Agrupar assignments por agent_id para calcular n_accounts y total_aum
+        agent_ids = [doc.get("agent_id") or doc.get("userId") for doc in top_16_agents]
+        agent_ids = [aid for aid in agent_ids if aid]  # Filtrar None
+
+        pipeline = [
+            {"$match": {"agent_id": {"$in": agent_ids}}},
+            {"$group": {
+                "_id": "$agent_id",
+                "n_accounts": {"$sum": 1},
+                "total_aum": {"$sum": "$balance"}
+            }}
+        ]
+
+        for result in assignments_col.aggregate(pipeline):
+            aum_data_by_agent[result["_id"]] = {
+                "n_accounts": result["n_accounts"],
+                "total_aum": result["total_aum"]
+            }
+
+        logger.info(f"Obtenidos datos AUM para {len(aum_data_by_agent)} agentes desde assignments")
 
         # Mapear a formato de respuesta
         top16_data = []
         for index, doc in enumerate(top_16_agents, start=1):
-            top16_data.append({
+            agent_id = doc.get("agent_id") or doc.get("userId")
+            aum_info = aum_data_by_agent.get(agent_id, {"n_accounts": 0, "total_aum": 0.0})
+
+            # Crear objeto con campo ROI dinamico
+            agent_data = {
                 "rank": index,
-                "agent_id": doc.get("agent_id") or doc.get("userId"),
-                "roi_7d": doc.get("roi_7d_total", 0.0),
-                "n_accounts": 0,  # No disponible en cálculo dinámico
-                "total_aum": 0.0,  # No disponible en cálculo dinámico
+                "agent_id": agent_id,
+                roi_field_name: doc.get(roi_field_name, 0.0),  # Usar nombre de campo dinamico
+                "n_accounts": aum_info["n_accounts"],
+                "total_aum": aum_info["total_aum"],
                 "is_in_casterly": True,
-            })
+            }
+            top16_data.append(agent_data)
 
         window_start_str = doc.get("window_start") if top_16_agents else None
         window_end_str = doc.get("window_end") if top_16_agents else None
 
     else:
-        # Usar colección precalculada
-        top16_collection_name = get_top16_collection_name(requested_window_days)
-        top16_collection = db[top16_collection_name]
-        logger.info(f"Usando colección precalculada: {top16_collection_name}")
+        # Usar colección precalculada pero calcular ROI acumulado del período completo
+        logger.info(f"Calculando Top 16 con ROI acumulado para ventana {requested_window_days}D")
 
-        roi_field = f"roi_{requested_window_days}d"
+        # Calcular ROI acumulado desde daily_roi_calculation
+        roi_docs = await _calculate_dynamic_roi(
+            end_date_obj,
+            requested_window_days,
+            executed_window_days
+        )
 
-        # Usar agregación para obtener agentes UNICOS y ordenados
-        pipeline = [
-            {"$match": {"date": date_str, "is_in_casterly": True}},
-            {"$sort": {roi_field: -1}},
-            {"$group": {
-                "_id": "$agent_id",
-                "agent_id": {"$first": "$agent_id"},
-                "roi": {"$first": f"${roi_field}"},
-                "n_accounts": {"$first": "$n_accounts"},
-                "total_aum": {"$first": "$total_aum"},
-                "is_in_casterly": {"$first": "$is_in_casterly"}
-            }},
-            {"$sort": {"roi": -1}},
-            {"$limit": 16}
-        ]
-
-        top16_docs = list(top16_collection.aggregate(pipeline))
-
-        if not top16_docs:
+        if not roi_docs:
             return {
                 "success": False,
-                "message": f"No se encontraron agentes para la fecha {date_str}",
+                "message": f"No se encontraron datos para calcular Top 16 en fecha {date_str}",
                 "date": date_str,
                 "top16": [],
             }
 
+        # Filtrar agentes que violan Stop Loss -10% y ordenar por ROI
+        roi_field_name = f"roi_{requested_window_days}d"
+        filtered_roi_docs = [doc for doc in roi_docs if doc.get(roi_field_name, 0.0) >= -0.10]
+        sorted_roi_docs = sorted(filtered_roi_docs, key=lambda x: x.get(roi_field_name, 0.0), reverse=True)
+        top_16_agents = sorted_roi_docs[:16]
+
+        # Log de agentes excluidos por Stop Loss
+        excluded_count = len(roi_docs) - len(filtered_roi_docs)
+        if excluded_count > 0:
+            excluded_agents = [doc.get("agent_id") for doc in roi_docs if doc.get(roi_field_name, 0.0) < -0.10]
+            logger.info(
+                f"[EXPULSION_STOP_LOSS] {excluded_count} agentes excluidos por Stop Loss -10%: {excluded_agents}"
+            )
+
+        # Obtener n_accounts y total_aum desde assignments actuales
+        assignments_col = db["assignments"]
+        aum_data_by_agent = {}
+
+        # Agrupar assignments por agent_id para calcular n_accounts y total_aum
+        agent_ids = [doc.get("agent_id") or doc.get("userId") for doc in top_16_agents]
+        agent_ids = [aid for aid in agent_ids if aid]  # Filtrar None
+
+        pipeline = [
+            {"$match": {"agent_id": {"$in": agent_ids}}},
+            {"$group": {
+                "_id": "$agent_id",
+                "n_accounts": {"$sum": 1},
+                "total_aum": {"$sum": "$balance"}
+            }}
+        ]
+
+        for result in assignments_col.aggregate(pipeline):
+            aum_data_by_agent[result["_id"]] = {
+                "n_accounts": result["n_accounts"],
+                "total_aum": result["total_aum"]
+            }
+
+        logger.info(f"Obtenidos datos AUM para {len(aum_data_by_agent)} agentes desde assignments")
+
         # Mapear a formato de respuesta
         top16_data = []
-        for index, doc in enumerate(top16_docs, start=1):
-            top16_data.append({
+        for index, doc in enumerate(top_16_agents, start=1):
+            agent_id = doc.get("agent_id") or doc.get("userId")
+            aum_info = aum_data_by_agent.get(agent_id, {"n_accounts": 0, "total_aum": 0.0})
+
+            # Crear objeto con campo ROI dinamico
+            agent_data = {
                 "rank": index,
-                "agent_id": doc.get("agent_id"),
-                "roi_7d": doc.get("roi", 0.0),
-                "n_accounts": doc.get("n_accounts", 0),
-                "total_aum": doc.get("total_aum", 0.0),
-                "is_in_casterly": doc.get("is_in_casterly", True),
-            })
+                "agent_id": agent_id,
+                roi_field_name: doc.get(roi_field_name, 0.0),  # Usar nombre de campo dinamico
+                "n_accounts": aum_info["n_accounts"],
+                "total_aum": aum_info["total_aum"],
+                "is_in_casterly": True,
+            }
+            top16_data.append(agent_data)
 
-        # Obtener rango de fechas desde la colección ROI dinámica
-        roi_collection_name = get_roi_collection_name(requested_window_days)
-        roi_collection = db[roi_collection_name]
-        roi_doc = roi_collection.find_one({"target_date": date_str})
-
-        window_start_str = roi_doc.get("window_start") if roi_doc else None
-        window_end_str = roi_doc.get("window_end") if roi_doc else None
+        # Obtener rango de fechas desde los documentos calculados
+        window_start_str = top_16_agents[0].get("window_start") if top_16_agents else None
+        window_end_str = top_16_agents[0].get("window_end") if top_16_agents else None
 
     # Contar agentes en Casterly Rock
     in_casterly_count = sum(1 for agent in top16_data if agent["is_in_casterly"])
@@ -1059,21 +1133,34 @@ async def get_rotation_history(
             "rotations": [],
         }
 
+    # Obtener window_days de system_config para datos históricos
+    db = database_manager.get_database()
+    system_config_col = db["system_config"]
+    config = system_config_col.find_one({"config_key": "last_simulation"})
+    default_window_days = config.get("window_days", 30) if config else 30
+
     rotations_data = []
     for rotation in rotations:
-        rotations_data.append(
-            {
-                "date": rotation.date.isoformat() if hasattr(rotation.date, "isoformat") else str(rotation.date),
-                "agent_out": rotation.agent_out,
-                "agent_in": rotation.agent_in,
-                "reason": rotation.reason.value if hasattr(rotation.reason, "value") else rotation.reason,
-                "roi_7d_out": rotation.roi_7d_out,
-                "roi_total_out": rotation.roi_total_out,
-                "roi_7d_in": rotation.roi_7d_in,
-                "n_accounts": rotation.n_accounts,
-                "total_aum": rotation.total_aum,
-            }
-        )
+        rotation_data = {
+            "date": rotation.date.isoformat() if hasattr(rotation.date, "isoformat") else str(rotation.date),
+            "agent_out": rotation.agent_out,
+            "agent_in": rotation.agent_in,
+            "reason": rotation.reason.value if hasattr(rotation.reason, "value") else rotation.reason,
+            "n_accounts": rotation.n_accounts,
+            "total_aum": rotation.total_aum,
+        }
+
+        # Campos dinámicos (nuevos) - con fallback a window_days de system_config
+        rotation_data["window_days"] = rotation.window_days if (hasattr(rotation, 'window_days') and rotation.window_days) else default_window_days
+        rotation_data["roi_window_out"] = rotation.roi_window_out if (hasattr(rotation, 'roi_window_out') and rotation.roi_window_out is not None) else (rotation.roi_7d_out if hasattr(rotation, 'roi_7d_out') else 0.0)
+        rotation_data["roi_total_out"] = rotation.roi_total_out
+        rotation_data["roi_window_in"] = rotation.roi_window_in if (hasattr(rotation, 'roi_window_in') and rotation.roi_window_in is not None) else (rotation.roi_7d_in if hasattr(rotation, 'roi_7d_in') else 0.0)
+
+        # Campos legacy (compatibilidad)
+        rotation_data["roi_7d_out"] = rotation.roi_7d_out if (hasattr(rotation, 'roi_7d_out') and rotation.roi_7d_out is not None) else rotation_data["roi_window_out"]
+        rotation_data["roi_7d_in"] = rotation.roi_7d_in if (hasattr(rotation, 'roi_7d_in') and rotation.roi_7d_in is not None) else rotation_data["roi_window_in"]
+
+        rotations_data.append(rotation_data)
 
     return {
         "success": True,
@@ -1399,18 +1486,20 @@ def _build_agents_timeline_data(
         unique_docs = {}
         for doc in docs:
             agent_id = doc.get("agent_id")
-            roi_value = doc.get(roi_field, 0.0)
+            # NOTA: Los docs en MongoDB siempre usan "roi_7d" independiente de la ventana
+            roi_value = doc.get("roi_7d", 0.0)
             # Si no existe o tiene mayor ROI, usar este documento
-            if agent_id not in unique_docs or roi_value > unique_docs[agent_id].get(roi_field, 0.0):
+            if agent_id not in unique_docs or roi_value > unique_docs[agent_id].get("roi_7d", 0.0):
                 unique_docs[agent_id] = doc
 
         # Ordenar agentes por ROI descendente (mayor ROI = mejor rank)
-        sorted_docs = sorted(unique_docs.values(), key=lambda d: d.get(roi_field, 0.0), reverse=True)
+        sorted_docs = sorted(unique_docs.values(), key=lambda d: d.get("roi_7d", 0.0), reverse=True)
 
         # Asignar rank dinámicamente (1, 2, 3, ...)
         for rank_index, doc in enumerate(sorted_docs, start=1):
             agent_id = doc.get("agent_id")
-            roi_value = doc.get(roi_field, 0.0)
+            # NOTA: Leer siempre de "roi_7d" pero retornar con nombre dinámico
+            roi_value = doc.get("roi_7d", 0.0)
             is_in_casterly = doc.get("is_in_casterly", False)
 
             if agent_id not in agents_data:
@@ -1427,7 +1516,7 @@ def _build_agents_timeline_data(
 
             agents_data[agent_id]["timeline"][date_str] = {
                 "rank": rank_index,  # Rank calculado dinámicamente
-                "roi_7d": roi_value,
+                roi_field: roi_value,
                 "in_top16": is_in_casterly,
                 "daily_roi": daily_roi,
                 "is_loss_day": is_loss_day,
@@ -1439,14 +1528,37 @@ def _build_agents_timeline_data(
 def _fill_missing_days_in_timeline(
     agents_data: Dict[str, Dict[str, Any]],
     dates: List[str],
-    daily_roi_map: Dict[str, Dict[str, float]]
+    daily_roi_map: Dict[str, Dict[str, float]],
+    window_days: int
 ) -> List[Dict[str, Any]]:
     """
     Rellena días faltantes en el timeline de cada agente y ordena.
 
+    MODIFICADO: Ahora también incluye agentes que NO estuvieron en el Top 16
+    pero tienen datos de ROI (para mostrar TODOS los agentes).
+
     Returns:
         Lista de agentes con timeline completo, ordenados por mejor rank
     """
+    roi_field = f"roi_{window_days}d"
+    # Agregar agentes que tienen datos de ROI pero no están en agents_data (nunca estuvieron en Top 16)
+    all_agents_with_roi = set(daily_roi_map.keys())
+    agents_in_data = set(agents_data.keys())
+    agents_never_in_top16 = all_agents_with_roi - agents_in_data
+
+    logger.info(f"[TIMELINE] Agentes con datos de ROI: {len(all_agents_with_roi)}")
+    logger.info(f"[TIMELINE] Agentes que estuvieron en Top 16: {len(agents_in_data)}")
+    logger.info(f"[TIMELINE] Agentes que NUNCA estuvieron en Top 16: {len(agents_never_in_top16)}")
+
+    # Agregar agentes que nunca estuvieron en Top 16
+    for agent_id in agents_never_in_top16:
+        agents_data[agent_id] = {
+            "agent_id": agent_id,
+            "timeline": {},  # Timeline vacío (nunca en Top 16)
+            "entry_info": {},
+            "exit_info": {},
+        }
+
     agents_list = []
     for agent_id, agent_info in agents_data.items():
         timeline = []
@@ -1463,7 +1575,7 @@ def _fill_missing_days_in_timeline(
                     {
                         "date": date_str,
                         "rank": None,
-                        "roi_7d": None,
+                        roi_field: None,
                         "in_top16": False,
                         "daily_roi": daily_roi,
                         "is_loss_day": is_loss_day,
@@ -1500,6 +1612,7 @@ async def _calculate_timeline_dynamically(
     """
     from datetime import timedelta
 
+    roi_field = f"roi_{requested_window_days}d"
     logger.info(f"[DYNAMIC TIMELINE] Iniciando cálculo dinámico para ventana {requested_window_days}D")
 
     # 1. Determinar fecha objetivo
@@ -1578,7 +1691,7 @@ async def _calculate_timeline_dynamically(
             day_data = {
                 "date": date_str,
                 "rank": None,
-                "roi_7d": None,
+                roi_field: None,
                 "in_top16": False,
                 "daily_roi": None,
                 "is_loss_day": False
@@ -1587,7 +1700,7 @@ async def _calculate_timeline_dynamically(
             if agent_id in agents_in_top16_today:
                 agent_doc = agents_in_top16_today[agent_id]
                 day_data["rank"] = agent_doc.get("rank")
-                day_data["roi_7d"] = agent_doc.get("roi_7d_total", 0.0)
+                day_data[roi_field] = agent_doc.get("roi_7d_total", 0.0)
                 day_data["in_top16"] = True
 
                 # Obtener ROI diario del último día de la ventana
@@ -1690,7 +1803,16 @@ async def get_top16_timeline(
         }
 
     # 5. Construir mapa de ROI diario
-    unique_agents = list({doc["agent_id"] for doc in top16_docs})
+    # CAMBIO: Obtener TODOS los agentes únicos con datos de ROI, no solo los del Top 16
+    # Esto permite ver en el timeline TODOS los agentes que participaron, no solo los que entraron al Top 16
+    all_agents_with_data = list(roi_collection.distinct("userId", {"date": {"$in": dates}}))
+    logger.info(f"Timeline - Encontrados {len(all_agents_with_data)} agentes únicos con datos de ROI en el período")
+
+    # También incluir agentes del Top 16 por si hay alguno que no esté en daily_roi
+    agents_from_top16 = list({doc["agent_id"] for doc in top16_docs})
+    unique_agents = list(set(all_agents_with_data + agents_from_top16))
+    logger.info(f"Timeline - Total de agentes a mostrar: {len(unique_agents)} (incluyendo {len(agents_from_top16)} del Top 16)")
+
     daily_roi_map = _build_daily_roi_map(roi_collection, unique_agents, dates)
 
     # 6. Procesar logs de rotación
@@ -1706,7 +1828,7 @@ async def get_top16_timeline(
     )
 
     # 8. Rellenar días faltantes y ordenar
-    agents_list = _fill_missing_days_in_timeline(agents_data, dates, daily_roi_map)
+    agents_list = _fill_missing_days_in_timeline(agents_data, dates, daily_roi_map, window_days)
 
     # Log: Mostrar los primeros 5 agentes para debug
     logger.info(f"Timeline - Total de agentes procesados: {len(agents_list)}")
@@ -1733,3 +1855,136 @@ async def get_top16_timeline(
         "total_agents": len(agents_list),
         "agents": agents_list,
     }
+
+
+@router.get("/roi-evolution")
+def get_roi_evolution(
+    start_date: Optional[str] = Query(None, description="Fecha de inicio (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Fecha de fin (YYYY-MM-DD)"),
+    window_days: int = Query(30, ge=3, le=30, description="Ventana de dias (3-30)")
+):
+    """
+    Obtiene la evolucion diaria de metricas de ROI para el grafico de tendencias.
+
+    Calcula dia por dia:
+    - ROI Total acumulado
+    - Volatilidad (desviacion estandar movil)
+    - Drawdown maximo (caida desde maximo historico)
+
+    Args:
+        start_date: Fecha de inicio. Si no se especifica, usa ultimos window_days
+        end_date: Fecha de fin. Si no se especifica, usa la fecha final de simulacion
+        window_days: Ventana de dias para calcular metricas
+
+    Returns:
+        Dict con arrays de datos diarios para el grafico
+    """
+    try:
+        db = database_manager.get_database()
+        system_config_col = db["system_config"]
+        daily_roi_col = db["daily_roi_calculation"]
+
+        # 1. Determinar rango de fechas - SIEMPRE usar config primero
+        config = system_config_col.find_one({"config_key": "last_simulation"})
+
+        if not config or "end_date" not in config:
+            raise HTTPException(status_code=404, detail="No se encontro configuracion de simulacion")
+
+        # Usar end_date del parametro o del config
+        if end_date:
+            target_date = date.fromisoformat(end_date)
+        else:
+            target_date = date.fromisoformat(config["end_date"])
+
+        if start_date:
+            start_date_obj = date.fromisoformat(start_date)
+        else:
+            start_date_obj = target_date - timedelta(days=window_days - 1)
+
+        logger.info(f"ROI Evolution: {start_date_obj} a {target_date}, ventana: {window_days}D")
+
+        # 2. Obtener datos de daily_roi_calculation para el rango
+        dates_list = []
+        current = start_date_obj
+        while current <= target_date:
+            dates_list.append(current.isoformat())
+            current += timedelta(days=1)
+
+        # 3. Obtener ROIs diarios de todos los agentes del Top 16
+        daily_data = list(daily_roi_col.find({
+            "date": {"$in": dates_list}
+        }).sort("date", 1))
+
+        if not daily_data:
+            raise HTTPException(status_code=404, detail="No hay datos para el rango especificado")
+
+        # 4. Agrupar datos por fecha y calcular metricas dia por dia
+        from collections import defaultdict
+        daily_grouped = defaultdict(list)
+        for doc in daily_data:
+            daily_grouped[doc["date"]].append(doc.get("roi_day", 0.0))
+
+        dates = []
+        roi_total_array = []
+        volatility_array = []
+        drawdown_array = []
+
+        roi_cumulative = 0.0
+        roi_history = []
+        max_roi_so_far = 0.0
+
+        for day_date in sorted(daily_grouped.keys()):
+            # Calcular ROI promedio de todos los agentes para este dia
+            day_rois = daily_grouped[day_date]
+            day_roi = sum(day_rois) / len(day_rois) if day_rois else 0.0
+
+            # ROI acumulado
+            roi_cumulative += day_roi
+            roi_history.append(day_roi)
+
+            # Volatilidad (desviacion estandar de ultimos N dias)
+            if len(roi_history) >= 2:
+                mean_roi = sum(roi_history[-min(7, len(roi_history)):]) / min(7, len(roi_history))
+                variance = sum([(r - mean_roi) ** 2 for r in roi_history[-min(7, len(roi_history)):] ]) / min(7, len(roi_history))
+                volatility = variance ** 0.5
+            else:
+                volatility = 0.0
+
+            # Drawdown (caida desde maximo historico)
+            max_roi_so_far = max(max_roi_so_far, roi_cumulative)
+            drawdown = roi_cumulative - max_roi_so_far
+
+            dates.append(day_date)
+            roi_total_array.append(round(roi_cumulative, 4))
+            volatility_array.append(round(volatility, 4))
+            drawdown_array.append(round(drawdown, 4))
+
+        # 5. Calcular valores finales para los KPIs
+        final_roi = roi_total_array[-1] if roi_total_array else 0.0
+        final_volatility = volatility_array[-1] if volatility_array else 0.0
+        final_drawdown = min(drawdown_array) if drawdown_array else 0.0
+
+        logger.info(f"ROI Evolution calculado: {len(dates)} dias, ROI final: {final_roi:.2%}")
+
+        return {
+            "success": True,
+            "start_date": start_date_obj.isoformat(),
+            "end_date": target_date.isoformat(),
+            "window_days": window_days,
+            "dates": dates,
+            "roi_total": roi_total_array,
+            "volatility": volatility_array,
+            "drawdown": drawdown_array,
+            "summary": {
+                "total_roi": final_roi,
+                "volatility": final_volatility,
+                "max_drawdown": final_drawdown
+            }
+        }
+
+    except ValueError as ve:
+        logger.error(f"Error de formato de fecha: {ve}")
+        raise HTTPException(status_code=400, detail=f"Formato de fecha invalido: {str(ve)}")
+    except Exception as e:
+        logger.error(f"Error al calcular ROI evolution: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")

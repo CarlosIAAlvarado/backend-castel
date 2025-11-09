@@ -358,6 +358,8 @@ def _clean_collections(db, request: SimulationRequest) -> List[Dict[str, Any]]:
         "cuentas_clientes_trading",
         "historial_asignaciones_clientes",
         "snapshots_clientes",
+        "client_accounts_snapshots",  # Snapshots de simulaciones de client accounts
+        "client_accounts_simulations",  # Metadatos de simulaciones de client accounts
         "rebalanceo_log",
 
         # Colecciones de ROI por ventana (3d, 5d, 7d, 10d, 15d, 30d)

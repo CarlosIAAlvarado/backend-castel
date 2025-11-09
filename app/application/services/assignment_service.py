@@ -1,11 +1,14 @@
 from typing import List, Dict, Any
 from datetime import date, datetime
 import random
+import logging
 import pytz
 from app.domain.entities.assignment import Assignment
 from app.domain.repositories.assignment_repository import AssignmentRepository
 from app.domain.repositories.balance_repository import BalanceRepository
 from app.application.services.selection_service import SelectionService
+
+logger = logging.getLogger(__name__)
 
 
 class AssignmentService:
@@ -62,25 +65,37 @@ class AssignmentService:
     def distribute_accounts_randomly(
         self,
         accounts: List[Dict[str, Any]],
-        top_agents: List[Dict[str, Any]]
+        top_agents: List[Dict[str, Any]],
+        seed: int = None
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Distribuye cuentas aleatoriamente entre los agentes del Top 16.
 
         Logica:
-        - Mezcla aleatoriamente la lista de cuentas
+        - Mezcla aleatoriamente la lista de cuentas (con semilla para reproducibilidad)
         - Asigna cuentas de forma equitativa y circular entre los 16 agentes
         - Si hay N cuentas y 16 agentes, cada agente recibe N/16 cuentas (aprox)
 
         Args:
             accounts: Lista de cuentas disponibles
             top_agents: Lista de agentes Top 16
+            seed: Semilla para reproducibilidad (ej: fecha como YYYYMMDD).
+                  Si es None, la distribucion sera aleatoria no reproducible.
 
         Returns:
             Diccionario {agent_id: [lista de cuentas asignadas]}
         """
         shuffled_accounts = accounts.copy()
+
+        # Fijar semilla para reproducibilidad
+        if seed is not None:
+            random.seed(seed)
+
         random.shuffle(shuffled_accounts)
+
+        # Resetear seed para no afectar otras operaciones aleatorias
+        if seed is not None:
+            random.seed()
 
         assignments = {agent["agent_id"]: [] for agent in top_agents}
 
@@ -127,7 +142,12 @@ class AssignmentService:
         if not accounts:
             raise ValueError(f"No se encontraron cuentas disponibles para la fecha {target_date}")
 
-        distribution = self.distribute_accounts_randomly(accounts, top_16)
+        # Generar semilla basada en la fecha para reproducibilidad
+        # Formato: YYYYMMDD como entero (ej: 20250908)
+        seed = int(target_date.strftime("%Y%m%d"))
+        logger.info(f"Usando semilla {seed} para distribucion reproducible de cuentas (fecha: {target_date})")
+
+        distribution = self.distribute_accounts_randomly(accounts, top_16, seed=seed)
 
         assignment_entities = []
         assignment_time = datetime.now(self.timezone)

@@ -49,17 +49,27 @@ class SimulationResponseBuilder:
         """
         # Preparar datos del Top 16 con ROI
         roi_field = f"roi_{window_days}d"
-        top_16_with_data = [
-            {
+
+        top_16_with_data = []
+        for idx, agent in enumerate(top16):
+            # Obtener ROI usando el campo dinámico de la ventana, con fallbacks
+            roi_value = agent.get(roi_field)
+            if roi_value is None:
+                # Fallback a clave legacy usada por SelectionService
+                roi_value = agent.get("roi_7d")
+            if roi_value is None:
+                # Fallback adicional por si viene con nombre roi_7d_total en resultados bulk
+                roi_value = agent.get("roi_7d_total", 0.0)
+
+            top_16_with_data.append({
                 "userId": agent["userId"],
-                "roi_7d": agent.get(roi_field, 0.0),
+                # Por compatibilidad mantenemos el nombre "roi_7d" aunque la ventana pueda ser distinta
+                "roi_7d": roi_value,
                 "total_pnl": agent.get("total_pnl", 0.0),
                 "balance": agent.get("balance_current", 0.0),
                 "total_trades_7d": agent.get("total_trades_7d", 0),
                 "rank": agent.get("rank", idx + 1)
-            }
-            for idx, agent in enumerate(top16)
-        ]
+            })
 
         result = {
             "success": True,

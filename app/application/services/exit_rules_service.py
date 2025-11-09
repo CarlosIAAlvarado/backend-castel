@@ -6,6 +6,7 @@ from app.domain.rules.exit_rule import ExitRule
 from app.domain.rules.consecutive_fall_rule import ConsecutiveFallRule
 from app.domain.rules.roi_threshold_rule import ROIThresholdRule
 from app.domain.rules.combined_rule import CombinedRule
+from app.domain.constants.business_rules import STOP_LOSS_THRESHOLD, CONSECUTIVE_FALL_THRESHOLD
 
 
 class ExitRulesService:
@@ -49,8 +50,8 @@ class ExitRulesService:
 
         if exit_rules is None:
             self.exit_rules = [
-                ConsecutiveFallRule(min_fall_days=3),
-                ROIThresholdRule(min_roi=-0.10)
+                ConsecutiveFallRule(min_fall_days=CONSECUTIVE_FALL_THRESHOLD),
+                ROIThresholdRule(min_roi=STOP_LOSS_THRESHOLD)
             ]
             self.exit_rule = CombinedRule(self.exit_rules, operator="OR")
         else:

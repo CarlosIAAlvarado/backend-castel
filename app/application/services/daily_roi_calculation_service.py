@@ -177,11 +177,12 @@ class DailyROICalculationService:
 
         pipeline = [
             # PASO 1: Filtrar balance del día POR USERID Y BALANCE > 0
+            # IMPORTANTE: Solo existe UN balance por día por agente
             {
                 "$match": {
                     "userId": userId,
                     "createdAt": {"$gte": start_dt.isoformat(), "$lte": end_dt.isoformat()},
-                    "balance": {"$gt": 0}  # NUEVO: Filtrar balances <= 0 para evitar división por cero
+                    "balance": {"$gt": 0}  # Filtrar balances <= 0 para evitar división por cero
                 }
             },
             # PASO 2: JOIN con movements del mismo día (SOLO userId + fecha)
@@ -249,6 +250,9 @@ class DailyROICalculationService:
                 }
             },
             # PASO 5: Calcular ROI del día
+            # CONFIRMADO: balance es BOD (Balance of Day - inicio del día)
+            # El timestamp es ~05:00 AM (inicio de operaciones)
+            # Formula correcta: roi_day = pnl_del_dia / balance_bod
             {
                 "$addFields": {
                     "roi_day": {

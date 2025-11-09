@@ -54,6 +54,7 @@ class ResetSimulationResponse(BaseModel):
 class UpdateRoiRequest(BaseModel):
     """Request para actualizar ROI."""
     simulation_id: str = Field(..., description="ID de la simulacion")
+    window_days: int = Field(30, description="Ventana de dias para ROI (3-30)", ge=3, le=30)
 
 
 class UpdateRoiResponse(BaseModel):
@@ -201,6 +202,8 @@ async def get_client_accounts(
     limit: int = Query(1000, ge=1, le=10000, description="Numero maximo de registros"),
     agente_id: Optional[str] = Query(None, description="Filtrar por agente"),
     search: Optional[str] = Query(None, description="Buscar por nombre, email, cuenta_id o agente"),
+    window_days: int = Query(30, ge=3, le=30, description="Ventana de dias para ROI (3-30)"),
+    target_date: Optional[str] = Query(None, description="Fecha de referencia (YYYY-MM-DD). Si no se proporciona, usa el snapshot más reciente"),
     service: ClientAccountsService = Depends(get_client_accounts_service)
 ):
     """
@@ -214,6 +217,7 @@ async def get_client_accounts(
         limit: Numero maximo de registros a devolver
         agente_id: Filtro opcional por agente
         search: Termino de busqueda (nombre, email, cuenta_id o agente)
+        window_days: Ventana de dias para calcular ROI (default: 30)
         service: Servicio de cuentas de clientes
 
     Returns:
@@ -223,7 +227,10 @@ async def get_client_accounts(
         HTTPException: Si hay error al obtener cuentas
     """
     try:
-        logger.info(f"Obteniendo cuentas: skip={skip}, limit={limit}, agente_id={agente_id}, search={search}")
+        logger.info(
+            f"Obteniendo cuentas: skip={skip}, limit={limit}, agente_id={agente_id}, "
+            f"search={search}, window_days={window_days}, target_date={target_date}"
+        )
 
         # Usar el nuevo método del servicio
         accounts = service.get_all_client_accounts_formatted(
@@ -231,13 +238,20 @@ async def get_client_accounts(
             skip=skip,
             limit=limit,
             agente_id=agente_id,
-            search=search
+            search=search,
+            window_days=window_days,
+            target_date=target_date
         )
 
         return accounts
 
+    except ValueError as e:
+        # Error de validación (simulation_id no encontrado, ventana sin datos, etc.)
+        logger.warning(f"Error de validacion en cuentas: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+
     except Exception as e:
-        logger.error(f"Error al obtener cuentas: {str(e)}")
+        logger.error(f"Error al obtener cuentas: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
@@ -262,10 +276,11 @@ async def update_client_accounts_roi(
         HTTPException: Si hay error al actualizar ROI
     """
     try:
-        logger.info(f"Actualizando ROI para simulacion {request.simulation_id}")
+        logger.info(f"Actualizando ROI para simulacion {request.simulation_id} (window_days={request.window_days})")
 
         result = service.update_client_accounts_roi(
-            simulation_id=request.simulation_id
+            simulation_id=request.simulation_id,
+            window_days=request.window_days
         )
 
         return UpdateRoiResponse(**result)
@@ -278,6 +293,8 @@ async def update_client_accounts_roi(
 @router.get("/stats")
 async def get_client_accounts_stats(
     simulation_id: str = Query(..., description="ID de la simulacion"),
+    window_days: int = Query(30, ge=3, le=30, description="Ventana de dias para ROI (3-30)"),
+    target_date: Optional[str] = Query(None, description="Fecha de referencia (YYYY-MM-DD). Si no se proporciona, usa el snapshot más reciente"),
     service: ClientAccountsService = Depends(get_client_accounts_service)
 ):
     """
@@ -287,6 +304,7 @@ async def get_client_accounts_stats(
 
     Args:
         simulation_id: ID de la simulacion
+        window_days: Ventana de dias para calcular ROI (default: 30)
         service: Servicio de cuentas de clientes
 
     Returns:
@@ -296,15 +314,22 @@ async def get_client_accounts_stats(
         HTTPException: Si hay error al calcular estadisticas
     """
     try:
-        logger.info(f"Obteniendo estadisticas para simulacion {simulation_id}")
+        logger.info(
+            f"Obteniendo estadisticas para simulacion {simulation_id}, window_days={window_days}, target_date={target_date}"
+        )
 
         # Usar el nuevo método del servicio
-        stats = service.get_client_accounts_stats(simulation_id)
+        stats = service.get_client_accounts_stats(simulation_id, window_days, target_date)
 
         return stats
 
+    except ValueError as e:
+        # Error de validación (simulation_id no encontrado, ventana sin datos, etc.)
+        logger.warning(f"Error de validacion en stats: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+
     except Exception as e:
-        logger.error(f"Error al calcular estadisticas: {str(e)}")
+        logger.error(f"Error al calcular estadisticas: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
@@ -360,7 +385,6 @@ async def get_latest_simulation():
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
-@router.get("/timeline")
 def _validate_timeline_dates(start_date: str, end_date: str) -> tuple[Any, Any]:
     """
     Valida las fechas del timeline.
@@ -479,6 +503,7 @@ def _build_account_timeline(cuenta_id: str, snapshots: List[Dict[str, Any]], ser
     }]
 
 
+@router.get("/timeline")
 async def get_client_accounts_timeline(
     start_date: str = Query(..., description="Fecha inicio (YYYY-MM-DD)"),
     end_date: str = Query(..., description="Fecha fin (YYYY-MM-DD)"),

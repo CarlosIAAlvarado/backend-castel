@@ -169,18 +169,16 @@ class BulkROICalculationService:
         )
 
         # Agrupar por userId y fecha
+        # IMPORTANTE: Solo existe UN balance por día por agente
         balances_map = defaultdict(dict)
+
         for doc in cursor:
             user_id = doc["userId"]
             date_str = doc["createdAt"][:10]  # Extraer YYYY-MM-DD
             balance = doc.get("balance", 0.0)
 
-            # Si hay múltiples balances el mismo día, tomar el último
-            if date_str not in balances_map[user_id]:
-                balances_map[user_id][date_str] = balance
-            else:
-                # Comparar timestamps para tomar el más reciente
-                balances_map[user_id][date_str] = max(balances_map[user_id][date_str], balance)
+            # Guardar el balance del día (solo debería haber uno)
+            balances_map[user_id][date_str] = balance
 
         return dict(balances_map)
 
@@ -275,6 +273,8 @@ class BulkROICalculationService:
             day_trades = len(day_movements)
 
             # Calcular ROI del día
+            # CONFIRMADO: balance es BOD (Balance of Day - inicio del día)
+            # Formula correcta: roi = pnl / balance_bod
             roi = day_pnl / balance if balance > 0 else 0.0
 
             daily_rois.append({
@@ -299,11 +299,19 @@ class BulkROICalculationService:
         if not daily_rois:
             return None
 
-        # Calcular ROI total de 7 días
-        roi_7d_total = sum(day["roi"] for day in daily_rois)
+        # Calcular ROI total usando FORMULA COMPUESTA (financieramente correcta)
+        # Formula: (1 + ROI_día1) × (1 + ROI_día2) × ... × (1 + ROI_díaN) - 1
+        roi_compound = 1.0
+        for day in daily_rois:
+            roi_compound *= (1.0 + day["roi"])
+        roi_7d_total = roi_compound - 1.0
+
+        # También guardamos la suma simple para comparación/análisis
+        roi_7d_simple_sum = sum(day["roi"] for day in daily_rois)
 
         return {
             "roi_7d_total": roi_7d_total,
+            "roi_7d_simple_sum": roi_7d_simple_sum,  # Para comparación
             "total_pnl_7d": total_pnl,
             "daily_rois": daily_rois,
             "total_trades_7d": total_trades,
