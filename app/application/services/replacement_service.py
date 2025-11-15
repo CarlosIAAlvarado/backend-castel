@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 from datetime import date, datetime
+import logging
 import pytz
 from app.domain.entities.rotation_log import RotationLog, RotationReason
 from app.domain.repositories.rotation_log_repository import RotationLogRepository
@@ -16,6 +17,33 @@ from app.domain.events import (
     AccountsReassignedEvent
 )
 from app.domain.constants.business_rules import STOP_LOSS_THRESHOLD
+
+logger = logging.getLogger(__name__)
+
+
+def _map_reason_to_enum(reason_str: str) -> str:
+    """
+    Mapea razones en texto libre a valores del enum RotationReason.
+
+    Args:
+        reason_str: Razon en texto libre (ej: "Caida consecutiva por 3 dias")
+
+    Returns:
+        Valor del enum correspondiente (ej: "caida_tres_dias")
+    """
+    reason_lower = reason_str.lower()
+
+    # Mapeo de razones comunes
+    if "caida consecutiva" in reason_lower or "3 dias" in reason_lower:
+        return RotationReason.THREE_DAYS_FALL.value
+    elif "roi acumulado" in reason_lower or "stop" in reason_lower or "umbral" in reason_lower:
+        return RotationReason.STOP_LOSS.value
+    elif "desplazamiento" in reason_lower or "ranking" in reason_lower:
+        return RotationReason.RANKING_DISPLACEMENT.value
+    else:
+        # Si no coincide con ninguna, usar MANUAL como fallback
+        logger.warning(f"Razon desconocida '{reason_str}', usando MANUAL como fallback")
+        return RotationReason.MANUAL.value
 
 
 class ReplacementService:
@@ -55,12 +83,19 @@ class ReplacementService:
         field_name = self._get_roi_field_name(window_days)
 
         if hasattr(record, field_name):
-            return getattr(record, field_name, 0.0)
+            roi = getattr(record, field_name, 0.0)
+            return roi if roi is not None else 0.0
         elif isinstance(record, dict):
-            return record.get(field_name, 0.0)
+            roi = record.get(field_name, 0.0)
+            return roi if roi is not None else 0.0
         else:
             # Fallback a roi_7d si no existe el campo
-            return getattr(record, 'roi_7d', 0.0) if hasattr(record, 'roi_7d') else record.get('roi_7d', 0.0)
+            if hasattr(record, 'roi_7d'):
+                roi = getattr(record, 'roi_7d', 0.0)
+                return roi if roi is not None else 0.0
+            else:
+                roi = record.get('roi_7d', 0.0) if isinstance(record, dict) else 0.0
+                return roi if roi is not None else 0.0
 
     def __init__(
         self,
@@ -103,21 +138,12 @@ class ReplacementService:
         Returns:
             ROI total acumulado (suma de ROIs diarios)
         """
-        # Obtener todos los ROIs diarios del agente hasta la fecha objetivo
-        daily_rois = self.daily_roi_repo.get_by_user_id_and_date_range(
-            agent_id,
-            start_date=None,  # Desde el inicio
-            end_date=target_date
-        )
+        # TODO: Implementar cuando DailyROIRepository tenga el método get_by_user_id_and_date_range
+        # Por ahora retornamos 0.0 para no bloquear el flujo de rebalanceo
+        logger.debug(f"get_agent_total_roi() no implementado completamente. Retornando 0.0 para {agent_id}")
+        return 0.0
 
-        if not daily_rois:
-            return 0.0
-
-        # Sumar todos los ROIs diarios
-        total_roi = sum(roi.roi_day for roi in daily_rois)
-        return total_roi
-
-    def find_replacement_agent(
+    async def find_replacement_agent(
         self,
         target_date: date,
         current_casterly_agents: List[str],
@@ -126,12 +152,16 @@ class ReplacementService:
         """
         Busca el mejor agente de reemplazo en el Top 16 externo.
 
+        VERSION 2.0 - FLUJO REAL:
         SEGÚN ESPECIFICACIÓN (Sección 4):
         Criterios de Selección (en orden de prioridad):
         1. Mejor ROI: El agente debe tener el ROI más alto disponible
         2. Historial limpio:
            a) NO tiene 3 días consecutivos de pérdida
-           b) Tiene ROI acumulado >= -10% (Stop Loss)
+           b) ROI >= -10% (puede ser negativo, pero no peor que -10%)
+
+        IMPORTANTE: Se eliminó el requisito de "ROI positivo". Un agente con ROI
+        negativo puede entrar si está entre -10% y 0%.
 
         Args:
             target_date: Fecha objetivo
@@ -144,7 +174,7 @@ class ReplacementService:
         top16_records = self.top16_repo.get_by_date(target_date)
 
         if not top16_records:
-            top16, _ = self.selection_service.select_top_16(target_date)
+            top16, _ = await self.selection_service.select_top_16(target_date, window_days=window_days)
             external_candidates = [
                 agent for agent in top16
                 if agent["agent_id"] not in current_casterly_agents
@@ -171,37 +201,25 @@ class ReplacementService:
             return None
 
         # Filtrar candidatos que cumplen con los criterios de la especificación
-        from app.utils.logging_config import logger
-
         logger.info(f"[REPLACEMENT_START] Buscando reemplazo en fecha {target_date}. Total candidatos externos: {len(external_candidates)}")
 
         valid_candidates = []
         excluded_by_stop_loss = []
         excluded_by_three_days = []
-        excluded_by_negative_roi = []
 
         for candidate in external_candidates:
             agent_id = candidate["agent_id"]
             roi_window = candidate.get("roi_window", 0.0)
 
-            # Obtener ROI acumulado total del agente
-            roi_total = self.get_agent_total_roi(agent_id, target_date)
-
-            # CRITERIO 1: ROI acumulado positivo (según especificación sección 4.2.b)
-            if roi_total <= 0:
-                excluded_by_negative_roi.append(
-                    f"{agent_id} (ROI total: {roi_total * 100:.2f}%, ROI {window_days}D: {roi_window * 100:.2f}%)"
-                )
-                continue  # Agente no tiene ROI acumulado positivo
-
-            # CRITERIO 2: ROI >= -10% (Stop Loss)
+            # CRITERIO 1: ROI >= -10% (Stop Loss)
+            # FLUJO REAL: Solo excluir si ROI < -10%, puede ser negativo pero no peor que -10%
             if roi_window < STOP_LOSS_THRESHOLD:
                 excluded_by_stop_loss.append(
                     f"{agent_id} (ROI {window_days}D: {roi_window * 100:.2f}%)"
                 )
                 continue  # Agente viola Stop Loss, no puede entrar
 
-            # CRITERIO 3: NO tiene 3 días consecutivos de pérdida
+            # CRITERIO 2: NO tiene 3 días consecutivos de pérdida
             has_three_consecutive_losses = self.selection_service._check_three_consecutive_losses(
                 agent_id, target_date
             )
@@ -215,10 +233,8 @@ class ReplacementService:
             valid_candidates.append(candidate)
 
         # Log de candidatos excluidos
-        if excluded_by_negative_roi:
-            logger.warning(f"[REPLACEMENT] Candidatos excluidos por ROI acumulado NO positivo: {excluded_by_negative_roi}")
         if excluded_by_stop_loss:
-            logger.warning(f"[REPLACEMENT] Candidatos excluidos por Stop Loss: {excluded_by_stop_loss}")
+            logger.warning(f"[REPLACEMENT] Candidatos excluidos por Stop Loss (ROI < -10%): {excluded_by_stop_loss}")
         if excluded_by_three_days:
             logger.warning(f"[REPLACEMENT] Candidatos excluidos por 3 días consecutivos: {excluded_by_three_days}")
 
@@ -316,12 +332,9 @@ class ReplacementService:
             RotationLog creado
         """
         if isinstance(reason, str):
-            if reason == "three_days_fall":
-                reason_enum = RotationReason.THREE_DAYS_FALL
-            elif reason == "stop_loss":
-                reason_enum = RotationReason.STOP_LOSS
-            else:
-                reason_enum = RotationReason.MANUAL
+            # Usar funcion de mapeo inteligente que reconoce texto humano
+            reason_mapped = _map_reason_to_enum(reason)
+            reason_enum = RotationReason(reason_mapped)
         else:
             reason_enum = reason
 
@@ -345,7 +358,7 @@ class ReplacementService:
 
         return saved_log
 
-    def execute_replacement(
+    async def execute_replacement(
         self,
         agent_out: str,
         target_date: date,
@@ -372,7 +385,7 @@ class ReplacementService:
         Returns:
             Diccionario con resultado del reemplazo
         """
-        replacement_agent = self.find_replacement_agent(
+        replacement_agent = await self.find_replacement_agent(
             target_date,
             current_casterly_agents,
             window_days

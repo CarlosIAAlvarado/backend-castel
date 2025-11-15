@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from app.config.settings import settings
 from app.config.database import database_manager
 from app.presentation.routes import simulation_routes, reports_routes, simulations_routes, client_accounts_routes
+# rebalancing_routes ELIMINADO - FLUJO REAL: No hay rebalanceos programados
 from app.infrastructure.config.logging_config import setup_logging
 from app.infrastructure.config.console_logger import ConsoleLogger as log
 import os
@@ -51,6 +52,7 @@ app.include_router(simulation_routes.router)
 app.include_router(reports_routes.router)
 app.include_router(simulations_routes.router)
 app.include_router(client_accounts_routes.router)
+# rebalancing_routes.router ELIMINADO - FLUJO REAL: No hay endpoints de rebalanceo
 
 
 @app.get("/")

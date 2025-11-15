@@ -31,8 +31,8 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
         doc = collection.find_one({
             "userId": account_id,
             "createdAt": {
-                "$gte": start_dt.isoformat(),
-                "$lte": end_dt.isoformat()
+                "$gte": start_dt,
+                "$lte": end_dt
             }
         })
 
@@ -57,8 +57,8 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
 
         docs = collection.find({
             "createdAt": {
-                "$gte": start_dt.isoformat(),
-                "$lte": end_dt.isoformat()
+                "$gte": start_dt,
+                "$lte": end_dt
             }
         })
 
@@ -75,8 +75,8 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
         docs = collection.find({
             "userId": account_id,
             "createdAt": {
-                "$gte": start_dt.isoformat(),
-                "$lte": end_dt.isoformat()
+                "$gte": start_dt,
+                "$lte": end_dt
             }
         }).sort("createdAt", 1)
 
@@ -112,8 +112,8 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
             {
                 "$match": {
                     "createdAt": {
-                        "$gte": start_dt.isoformat(),
-                        "$lte": end_dt.isoformat()
+                        "$gte": start_dt,
+                        "$lte": end_dt
                     }
                 }
             },
@@ -148,8 +148,8 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
             {
                 "$match": {
                     "createdAt": {
-                        "$gte": start_dt.isoformat(),
-                        "$lte": end_dt.isoformat()
+                        "$gte": start_dt,
+                        "$lte": end_dt
                     }
                 }
             },
@@ -158,7 +158,7 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
                     "date_only": {
                         "$dateToString": {
                             "format": "%Y-%m-%d",
-                            "date": {"$dateFromString": {"dateString": "$createdAt"}}
+                            "date": "$createdAt"
                         }
                     }
                 }

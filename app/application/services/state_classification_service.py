@@ -105,10 +105,15 @@ class StateClassificationService:
         previous_state: Optional[AgentState] = None,
         roi_7d: Optional[float] = None,
         total_balance: Optional[float] = None,
-        daily_roi: Optional[Any] = None
+        daily_roi: Optional[Any] = None,
+        is_new_entry: bool = False
     ) -> AgentState:
         """
         Clasifica el estado de un agente en una fecha.
+
+        VERSION 3.0 - FLUJO REAL:
+        Agregado is_new_entry para resetear entry_date y roi_since_entry cuando
+        un agente entra por primera vez al Top 16.
 
         CAMBIO VERSION 2.3: Agregado parametro opcional daily_roi para optimización bulk
 
@@ -129,6 +134,7 @@ class StateClassificationService:
             roi_7d: ROI de 7 dias (opcional, se obtiene de agent_roi_7d)
             total_balance: Balance total del agente (opcional, se calcula de assignments)
             daily_roi: DailyROI precalculado (opcional, para optimización bulk)
+            is_new_entry: Si True, resetea entry_date y roi_since_entry (default: False)
 
         Returns:
             AgentState clasificado
@@ -172,9 +178,15 @@ class StateClassificationService:
                 state = StateType.GROWTH
                 fall_days = 0
 
-        entry_date = previous_state.entry_date if previous_state else target_date
-        roi_since_entry = previous_state.roi_since_entry if previous_state else 0.0
-        roi_since_entry += roi_day
+        # FLUJO REAL: Si es nueva entrada al Top, resetear entry_date y roi_since_entry
+        if is_new_entry:
+            entry_date = target_date
+            roi_since_entry = roi_day  # Comienza desde el ROI del día de entrada
+        else:
+            # Agente ya estaba en el Top, mantener acumulado
+            entry_date = previous_state.entry_date if previous_state else target_date
+            roi_since_entry = previous_state.roi_since_entry if previous_state else 0.0
+            roi_since_entry += roi_day
 
         # Calcular balance total si no se proporciona
         if total_balance is None:

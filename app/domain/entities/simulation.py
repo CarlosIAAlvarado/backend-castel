@@ -8,6 +8,7 @@ class SimulationConfig(BaseModel):
     target_date: date
     start_date: date
     days_simulated: int
+    window_days: Optional[int] = None
     fall_threshold: int = 3
     stop_loss_threshold: float = -0.10
 

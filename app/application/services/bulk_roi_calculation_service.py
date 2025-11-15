@@ -71,6 +71,9 @@ class BulkROICalculationService:
 
         Esta es la función OPTIMIZADA que reemplaza cálculos individuales.
 
+        Formula ROI: ROI_ND = (Σ P&L últimos N días) / Balance_inicial_(t-N)
+        Donde Balance_inicial es el balance del primer día de la ventana.
+
         Args:
             user_ids: Lista de userIds a calcular (ej: ["OKX_JH1", "OKX_JH2", ...])
             target_date: Fecha final de la ventana
@@ -236,7 +239,10 @@ class BulkROICalculationService:
         movements: Dict[str, List[float]]
     ) -> Optional[Dict[str, any]]:
         """
-        Calcula ROI 7D de un agente usando datos ya cargados en memoria.
+        Calcula ROI ND de un agente usando datos ya cargados en memoria.
+
+        Formula: ROI_ND = (Σ P&L últimos N días) / Balance_inicial_(t-N)
+        Donde Balance_inicial es el balance del primer día de la ventana.
 
         Args:
             user_id: ID del agente
@@ -299,14 +305,13 @@ class BulkROICalculationService:
         if not daily_rois:
             return None
 
-        # Calcular ROI total usando FORMULA COMPUESTA (financieramente correcta)
-        # Formula: (1 + ROI_día1) × (1 + ROI_día2) × ... × (1 + ROI_díaN) - 1
-        roi_compound = 1.0
-        for day in daily_rois:
-            roi_compound *= (1.0 + day["roi"])
-        roi_7d_total = roi_compound - 1.0
+        # Calcular ROI total usando FORMULA CORRECTA
+        # Formula: ROI_ND = (Σ P&L últimos N días) / Balance_inicial_(t-N)
+        # Balance inicial = balance del primer día de la ventana
+        balance_inicial = daily_rois[0]["balance"] if daily_rois else 0.0
+        roi_7d_total = total_pnl / balance_inicial if balance_inicial > 0 else 0.0
 
-        # También guardamos la suma simple para comparación/análisis
+        # También guardamos la suma simple de ROIs diarios para comparación/análisis
         roi_7d_simple_sum = sum(day["roi"] for day in daily_rois)
 
         return {
@@ -317,7 +322,8 @@ class BulkROICalculationService:
             "total_trades_7d": total_trades,
             "positive_days": positive_days,
             "negative_days": negative_days,
-            "balance_current": daily_rois[-1]["balance"] if daily_rois else 0.0
+            "balance_current": daily_rois[-1]["balance"] if daily_rois else 0.0,
+            "balance_inicial": balance_inicial  # Balance del primer día de la ventana
         }
 
     def _save_to_agent_roi_collection(
@@ -346,6 +352,11 @@ class BulkROICalculationService:
         # Preparar documentos para inserción batch
         docs_to_insert = []
 
+        # Usar campos dinámicos según window_days
+        roi_field = f"roi_{window_days}d"
+        pnl_field = f"total_pnl"  # Este no cambia
+        trades_field = f"total_trades_{window_days}d"
+
         for user_id, roi_data in results.items():
             doc = {
                 "userId": user_id,
@@ -353,10 +364,11 @@ class BulkROICalculationService:
                 "window_start": window_start_str,
                 "window_end": target_date_str,
                 "window_days": window_days,
-                "roi_7d_total": roi_data["roi_7d_total"],
-                "total_pnl_7d": roi_data["total_pnl_7d"],
+                # Campos dinámicos según window_days
+                roi_field: roi_data["roi_7d_total"],  # Campo dinámico: roi_3d, roi_7d, etc.
+                pnl_field: roi_data["total_pnl_7d"],
                 "daily_rois": roi_data["daily_rois"],
-                "total_trades_7d": roi_data["total_trades_7d"],
+                trades_field: roi_data["total_trades_7d"],  # Campo dinámico: total_trades_3d, etc.
                 "positive_days": roi_data["positive_days"],
                 "negative_days": roi_data["negative_days"]
             }

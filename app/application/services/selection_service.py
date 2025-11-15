@@ -39,10 +39,14 @@ class SelectionService:
         balance_repo: BalanceRepository,
         roi_7d_service: ROI7DCalculationService,
         balance_query_service: BalanceQueryService,
-        ranking_strategy: Optional[RankingStrategy] = None
+        ranking_strategy: Optional[RankingStrategy] = None,
+        state_repo: Optional[Any] = None
     ):
         """
         Constructor con inyeccion de dependencias.
+
+        VERSION 4.0 - FLUJO REAL:
+        Agregado state_repo para verificar roi_since_entry en regla de -10%.
 
         SOLID Improvement: Agregado ranking_strategy para aplicar Open/Closed Principle (OCP).
         Permite cambiar el criterio de ranking sin modificar el código.
@@ -53,12 +57,14 @@ class SelectionService:
             roi_7d_service: Servicio para calcular ROI_7D con nueva logica
             balance_query_service: Servicio de consultas de balances
             ranking_strategy: Estrategia de ranking (default: ROIRankingStrategy)
+            state_repo: Repositorio de estados de agentes (opcional)
         """
         self.top16_repo = top16_repo
         self.balance_repo = balance_repo
         self.roi_7d_service = roi_7d_service
         self.balance_query_service = balance_query_service
         self.ranking_strategy = ranking_strategy or ROIRankingStrategy()
+        self.state_repo = state_repo
 
     def get_all_agents_from_balances(self, target_date: date) -> List[str]:
         """
@@ -79,17 +85,32 @@ class SelectionService:
         config_col = db["system_config"]
         config = config_col.find_one({"config_key": "last_simulation"})
 
+        logger.info(f"[DEBUG_GET_AGENTS] system_config encontrado: {config is not None}")
+        if config:
+            logger.info(f"[DEBUG_GET_AGENTS] start_date en config: {config.get('start_date', 'NO EXISTE')}")
+
         if config and "start_date" in config:
-            window_start = date.fromisoformat(config["start_date"])
-            logger.info(f"Usando fecha de inicio de simulación desde system_config: {window_start}")
+            config_start_date = date.fromisoformat(config["start_date"])
+
+            # VALIDACION: Asegurar que la fecha de inicio sea ANTERIOR a target_date
+            if config_start_date < target_date:
+                window_start = config_start_date
+                logger.info(f"[DEBUG_GET_AGENTS] Usando fecha de inicio desde system_config: {window_start}")
+            else:
+                # Si la fecha en config es posterior a target_date, usar fallback
+                window_start = target_date - timedelta(days=7)
+                logger.warning(
+                    f"[DEBUG_GET_AGENTS] start_date en config ({config_start_date}) es posterior a target_date ({target_date}). "
+                    f"Usando fallback de 8 dias: {window_start}"
+                )
         else:
             # Fallback: usar ventana de 8 días si no hay configuración
             window_start = target_date - timedelta(days=7)
-            logger.warning(f"No se encontró start_date en system_config, usando fallback de 8 días: {window_start}")
+            logger.warning(f"[DEBUG_GET_AGENTS] No se encontro start_date en system_config, usando fallback de 8 dias: {window_start}")
 
         window_end = target_date
 
-        logger.info(f"Buscando TODOS los agentes desde {window_start} hasta {window_end}")
+        logger.info(f"[DEBUG_GET_AGENTS] Buscando TODOS los agentes desde {window_start} hasta {window_end}")
 
         # Buscar balances en toda la ventana
         balances = self.balance_repo.get_all_by_date_range(window_start, window_end)
@@ -237,7 +258,9 @@ class SelectionService:
         if agent_ids is None:
             agent_ids = self.get_all_agents_from_balances(target_date)
 
-        logger.info(f"Calculando ROI_{window_days}D para {len(agent_ids)} agentes (MODO ULTRA RAPIDO)")
+        logger.info(f"[DEBUG_ROI_CALC] Calculando ROI_{window_days}D para {len(agent_ids)} agentes (MODO ULTRA RAPIDO)")
+        logger.info(f"[DEBUG_ROI_CALC] target_date={target_date}, window_days={window_days}, min_aum={min_aum}")
+        logger.info(f"[DEBUG_ROI_CALC] Primeros 5 agent_ids: {agent_ids[:5]}")
 
         # Crear servicio bulk
         db = database_manager.get_database()
@@ -246,8 +269,11 @@ class SelectionService:
         # Calcular ROI para TODOS los agentes de una sola vez
         bulk_results = bulk_service.calculate_bulk_roi_7d(agent_ids, target_date, window_days=window_days)
 
+        logger.info(f"[DEBUG_ROI_CALC] bulk_service.calculate_bulk_roi_7d devolvio {len(bulk_results)} resultados")
+
         # Convertir a formato esperado
         agents_data = []
+        filtered_by_min_aum = 0
         for user_id, roi_data in bulk_results.items():
             # Filtrar por min_aum
             if roi_data["balance_current"] > min_aum:
@@ -267,11 +293,19 @@ class SelectionService:
                     "negative_days": roi_data["negative_days"],
                 }
                 agents_data.append(entry)
+            else:
+                filtered_by_min_aum += 1
 
         logger.info(
-            f"ROI_{window_days}D calculation complete (ULTRA FAST): {len(agents_data)}/{len(agent_ids)} agents "
-            f"passed min_aum filter"
+            f"[DEBUG_ROI_CALC] ROI_{window_days}D calculation complete (ULTRA FAST): {len(agents_data)}/{len(agent_ids)} agents "
+            f"passed min_aum filter (filtrados: {filtered_by_min_aum})"
         )
+
+        if len(agents_data) == 0 and len(bulk_results) > 0:
+            logger.error(f"[DEBUG_ROI_CALC] TODOS LOS AGENTES FUERON FILTRADOS POR min_aum={min_aum}")
+            logger.error(f"[DEBUG_ROI_CALC] Balances de primeros 3 agentes filtrados:")
+            for i, (user_id, roi_data) in enumerate(list(bulk_results.items())[:3], 1):
+                logger.error(f"[DEBUG_ROI_CALC]   {i}. {user_id}: balance={roi_data['balance_current']:.2f} (< {min_aum})")
 
         return agents_data
 
@@ -355,8 +389,15 @@ class SelectionService:
         # USA LA VERSION ULTRA RAPIDA
         agents_data = await self.calculate_all_agents_roi_7d_ULTRA_FAST(target_date, agent_ids, window_days=window_days)
 
+        # DEBUG: Log detallado
+        logger.info(f"[DEBUG_SELECT_TOP16] calculate_all_agents_roi_7d_ULTRA_FAST devolvio {len(agents_data)} agentes")
+        if agents_data:
+            logger.info(f"[DEBUG_SELECT_TOP16] Primeros 3 agentes: {[{k: v for k, v in list(agent.items())[:5]} for agent in agents_data[:3]]}")
+
         if not agents_data:
-            logger.warning(f"No agents data found for {target_date}")
+            logger.error(f"[DEBUG_SELECT_TOP16] NO HAY DATOS DE AGENTES para {target_date}")
+            logger.error(f"[DEBUG_SELECT_TOP16] agent_ids recibidos: {agent_ids[:5] if agent_ids else 'None (se buscaran todos)'}")
+            logger.error(f"[DEBUG_SELECT_TOP16] window_days: {window_days}")
             return [], []
 
         # FILTRAR agentes con condiciones de expulsión automática
@@ -375,12 +416,25 @@ class SelectionService:
             agent_id = agent["agent_id"]
             roi = agent.get(roi_field, 0.0)
 
-            # CONDICION 1: Stop Loss de -10%
-            if roi < -0.10:
+            # CONDICION 1: Stop Loss de -10% (medido desde ENTRADA al Top)
+            # Obtener roi_since_entry del AgentState más reciente
+            agent_state = self.state_repo.get_by_agent_and_date(agent_id, target_date)
+
+            # Si el agente ya estaba en el Top, verificar roi_since_entry
+            if agent_state and agent_state.is_in_casterly and agent_state.roi_since_entry is not None:
+                if agent_state.roi_since_entry <= -0.10:
+                    excluded_agents_stop_loss.append(agent_id)
+                    logger.warning(
+                        f"[EXPULSION_STOP_LOSS] {agent_id} excluido del Top 16 por Stop Loss "
+                        f"(ROI acumulado desde entrada: {agent_state.roi_since_entry * 100:.2f}% <= -10%)"
+                    )
+                    continue
+            # Si no está en el Top o es nuevo, verificar que el ROI actual no sea peor de -10%
+            elif roi < -0.10:
                 excluded_agents_stop_loss.append(agent_id)
                 logger.warning(
                     f"[EXPULSION_STOP_LOSS] {agent_id} excluido del Top 16 por Stop Loss "
-                    f"(ROI: {roi * 100:.2f}% < -10%)"
+                    f"(ROI actual: {roi * 100:.2f}% < -10%)"
                 )
                 continue
 
@@ -491,15 +545,22 @@ class SelectionService:
                 "n_accounts": agent_data.get("n_accounts", 0),
                 "total_aum": agent_data.get("total_aum", 0.0),
                 "is_in_casterly": is_in_casterly,
+                "window_days": window_days,  # Agregar window_days para saber qué ventana se usó
             }
 
             # Agregar el campo de ROI dinámico según la ventana
             roi_field = f"roi_{window_days}d"
+            # Los datos vienen con campo 'roi_7d' (legacy) que contiene el ROI de la ventana actual
+            # Y también con roi_{window_days}d (dinámico)
             if roi_field in agent_data:
                 entity_data[roi_field] = agent_data[roi_field]
             elif "roi_7d" in agent_data:
-                # Fallback: si no existe el campo específico, usar roi_7d
+                # Fallback: el campo roi_7d contiene el ROI de la ventana solicitada
                 entity_data[roi_field] = agent_data["roi_7d"]
+            else:
+                # Si no existe ningún campo, usar 0.0 como default
+                entity_data[roi_field] = 0.0
+                logger.warning(f"Campos ROI no encontrados para agente {agent_data['agent_id']}, usando 0.0")
 
             top16_entity = Top16Day(**entity_data)
             top16_entities.append(top16_entity)
@@ -589,7 +650,7 @@ class SelectionService:
             True si tuvo 3+ días consecutivos de pérdida, False en caso contrario
         """
         try:
-            logger.info(f"[DEBUG_3DIAS] INICIO - Verificando {agent_id} en fecha {current_date.isoformat()}")
+            logger.debug(f"[DEBUG_3DIAS] INICIO - Verificando {agent_id} en fecha {current_date.isoformat()}")
             db = database_manager.get_database()
             # Buscar en todas las colecciones de ROI para encontrar el registro más reciente
             # Intentar primero con agent_roi_7d (colección por defecto)
@@ -611,20 +672,20 @@ class SelectionService:
                     break
 
             if not agent_roi_doc:
-                logger.info(
+                logger.debug(
                     f"[DEBUG_3DIAS] {agent_id} - RETURN FALSE (no hay documento en ninguna colección agent_roi_*)"
                 )
                 return False
 
             daily_rois = agent_roi_doc.get("daily_rois", [])
-            logger.info(
+            logger.debug(
                 f"[DEBUG_3DIAS] {agent_id} - Encontrado documento en colección '{collection_found}' "
                 f"con {len(daily_rois)} días de ROI. "
                 f"Primeros 3: {daily_rois[:3] if len(daily_rois) >= 3 else daily_rois}"
             )
 
             if len(daily_rois) < 3:
-                logger.info(
+                logger.debug(
                     f"[DEBUG_3DIAS] {agent_id} - RETURN FALSE (menos de 3 días de datos: {len(daily_rois)})"
                 )
                 return False
@@ -636,7 +697,7 @@ class SelectionService:
             # Esto evita expulsar agentes por pérdidas históricas fuera de la simulación
             recent_rois = daily_rois_sorted[-3:]  # Últimos 3 días
 
-            logger.info(
+            logger.debug(
                 f"[DEBUG_3DIAS] {agent_id} - Evaluando solo los últimos 3 días: {recent_rois}"
             )
 
@@ -659,7 +720,7 @@ class SelectionService:
                     f"en los últimos 3 días: {[d['roi'] for d in recent_rois]}"
                 )
 
-            logger.info(
+            logger.debug(
                 f"[DEBUG_3DIAS] {agent_id} - RETURN {has_three_consecutive} "
                 f"(consecutive_losses={consecutive_losses} en últimos {CONSECUTIVE_FALL_THRESHOLD} días)"
             )
@@ -905,15 +966,23 @@ class SelectionService:
             # Calcular ROI total del agente saliente (desde inicio hasta ahora)
             roi_total_out = self._calculate_roi_total(agent_out_id, current_date) if agent_out_id else 0.0
 
+            # Obtener window_days de uno de los agentes (ambos deberían tener el mismo)
+            window_days = agent_out.window_days if agent_out and agent_out.window_days else 7
+            roi_field = f"roi_{window_days}d"
+
+            # Obtener ROI usando el campo dinámico
+            roi_out = getattr(agent_out, roi_field, None) if agent_out else None
+            roi_in = getattr(agent_in, roi_field, None) if agent_in else None
+
             rotation = {
                 "date": current_date,
                 "agent_out": agent_out_id,
                 "agent_in": agent_in_id,
                 "reason": reason,
                 "reason_details": reason_details,
-                "roi_7d_out": agent_out.roi_7d if agent_out else None,
+                "roi_7d_out": roi_out,  # Campo legacy, ahora contiene roi_{window_days}d
                 "roi_total_out": roi_total_out,
-                "roi_7d_in": agent_in.roi_7d if agent_in else None,
+                "roi_7d_in": roi_in,  # Campo legacy, ahora contiene roi_{window_days}d
                 "rank_out": agent_out.rank if agent_out else None,
                 "rank_in": agent_in.rank if agent_in else None,
                 "n_accounts": agent_in.n_accounts if agent_in else 0,

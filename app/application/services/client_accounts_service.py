@@ -755,7 +755,11 @@ class ClientAccountsService:
 
         # Query masivo para obtener datos de ROI de todos los agentes
         # Buscar por userId (que coincide con agent_id de top16)
-        roi_docs = list(agent_roi_col.find({"target_date": latest_date, "userId": {"$in": agent_ids}}))
+        # OPTIMIZACIÓN: Traer solo campos necesarios para calcular win_rate
+        roi_docs = list(agent_roi_col.find(
+            {"target_date": latest_date, "userId": {"$in": agent_ids}},
+            {"userId": 1, "positive_days": 1, "daily_rois": 1}
+        ))
 
         # Crear mapa de agent_id -> win_rate para acceso rapido
         win_rate_map = {}
@@ -791,17 +795,45 @@ class ClientAccountsService:
 
             roi_agente_al_asignar = cuenta["roi_agente_al_asignar"]
 
-            # Calcular ROI ganado con el agente actual
-            roi_acumulado_con_agente = roi_agente_actual - roi_agente_al_asignar
+            # CORREGIDO: Calcular el factor de cambio RELATIVO del agente
+            # En lugar de restar ROIs (diferencia absoluta), calcular el ratio de multiplicadores
+            # Esto refleja correctamente el rendimiento que experimentó la cuenta
 
-            # CORREGIDO: Calcular balance_actual desde balance_inicial
-            # roi_acumulado_con_agente ya es un valor ACUMULADO, no incremental
-            # Por lo tanto, debe aplicarse sobre balance_inicial, no sobre balance_anterior
+            # PROTECCIÓN: Limitar el ROI del agente a rangos razonables para proteger cuentas
+            # Los agentes en futures pueden tener ROI extremos (-200%, +500%, etc.)
+            # pero las cuentas de clientes deben tener protección de capital
+            MAX_AGENT_ROI = 200.0  # Limitar ganancia máxima aplicable a +200%
+            MIN_AGENT_ROI = -90.0  # Limitar pérdida máxima aplicable a -90%
+
+            roi_agente_al_asignar_safe = max(MIN_AGENT_ROI, min(MAX_AGENT_ROI, roi_agente_al_asignar))
+            roi_agente_actual_safe = max(MIN_AGENT_ROI, min(MAX_AGENT_ROI, roi_agente_actual))
+
+            # Convertir ROI a multiplicadores (ej: +568% limitado a +200% = 3.0x)
+            multiplicador_inicio = 1 + (roi_agente_al_asignar_safe / 100)
+            multiplicador_actual = 1 + (roi_agente_actual_safe / 100)
+
+            # Factor de cambio relativo (ej: 2.1 / 3.0 = 0.7 = -30%)
+            if multiplicador_inicio > 0:
+                factor_cambio = multiplicador_actual / multiplicador_inicio
+            else:
+                # Si el agente tenía ROI de -100% al asignar (multiplicador = 0), usar cambio absoluto
+                factor_cambio = 1 + ((roi_agente_actual_safe - roi_agente_al_asignar_safe) / 100)
+
+            # PROTECCIÓN ADICIONAL: Limitar el factor de cambio para evitar pérdidas catastróficas
+            # Una cuenta no debería perder más del 95% ni ganar más de 300% en una asignación
+            MAX_FACTOR = 4.0   # Ganancia máxima: 300%
+            MIN_FACTOR = 0.05  # Pérdida máxima: 95%
+            factor_cambio = max(MIN_FACTOR, min(MAX_FACTOR, factor_cambio))
+
+            # Aplicar el factor de cambio al balance inicial de la cuenta
             balance_inicial = cuenta["balance_inicial"]
-            balance_actual = balance_inicial * (1 + roi_acumulado_con_agente / 100)
+            balance_actual = balance_inicial * factor_cambio
 
-            # Prevenir balance negativo
-            balance_actual = max(0.0, balance_actual)
+            # Calcular ROI acumulado para tracking (basado en el factor de cambio)
+            roi_acumulado_con_agente = (factor_cambio - 1) * 100
+
+            # Prevenir balance negativo (protección final)
+            balance_actual = max(balance_inicial * 0.01, balance_actual)  # Mínimo 1% del capital inicial
 
             # Calcular ROI total respecto al balance inicial (para tracking)
             roi_total_nuevo = ((balance_actual / balance_inicial) - 1) * 100 if balance_inicial > 0 else 0.0
@@ -1793,3 +1825,286 @@ class ClientAccountsService:
             "roi_promedio": roi_promedio,
             "fecha_guardado": datetime.utcnow().isoformat(),
         }
+
+    def check_and_rotate_stop_loss_accounts(
+        self,
+        simulation_id: str,
+        target_date: datetime,
+        window_days: int = 7,
+        stop_loss_threshold: float = -0.10
+    ) -> Dict[str, Any]:
+        """
+        Verifica todas las cuentas y rota aquellas que han alcanzado el stop loss con su agente actual.
+
+        Esta función se debe ejecutar DIARIAMENTE para proteger las cuentas de clientes.
+
+        Lógica:
+        1. Obtener todas las cuentas activas
+        2. Para cada cuenta, calcular su ROI con el agente actual
+        3. Si ROI_cuenta <= -10%, rotar la cuenta a otro agente del Top 16
+        4. Registrar el evento en el historial
+
+        Args:
+            simulation_id: ID de la simulación
+            target_date: Fecha objetivo para la rotación
+            window_days: Ventana de días usada (para obtener Top 16 correcto)
+            stop_loss_threshold: Umbral de stop loss (default: -0.10 = -10%)
+
+        Returns:
+            Dict con resumen de rotaciones realizadas
+        """
+        logger.info(f"[STOP_LOSS_CHECK] Verificando cuentas con stop loss para {target_date}")
+
+        # 1. Obtener todas las cuentas activas (solo campos necesarios)
+        cuentas = list(self.cuentas_trading_col.find(
+            {"estado": "activo"},
+            {
+                "cuenta_id": 1,
+                "nombre_cliente": 1,
+                "agente_actual": 1,
+                "balance_inicial": 1,
+                "balance_actual": 1,
+                "roi_total": 1
+            }
+        ))
+        logger.debug(f"[STOP_LOSS_CHECK] Total cuentas activas: {len(cuentas)}")
+
+        # 2. Obtener Top 16 agentes disponibles para rotación
+        from app.utils.collection_names import get_top16_collection_name
+        top16_collection_name = get_top16_collection_name(window_days)
+        top16_col = self.db[top16_collection_name]
+
+        # CORREGIDO: Buscar por fecha como string (formato YYYY-MM-DD)
+        # El campo 'date' se guarda como string en MongoDB
+        target_date_str = target_date.date().isoformat() if hasattr(target_date, 'date') else target_date.isoformat()
+
+        # Intentar obtener Top 16 para la fecha exacta
+        # NOTA: El campo es 'agent_id', no 'agente_id'
+        top16_agents = list(
+            top16_col.find(
+                {"date": target_date_str},
+                {"agent_id": 1, f"roi_{window_days}d": 1}
+            ).sort(f"roi_{window_days}d", -1).limit(16)
+        )
+
+        # CORREGIDO: Si no hay datos para esa fecha, buscar el Top 16 más reciente
+        if not top16_agents:
+            logger.warning(f"[STOP_LOSS_CHECK] No se encontraron agentes Top 16 para {target_date_str}, buscando el más reciente...")
+
+            # Buscar el snapshot más reciente antes o igual a target_date
+            top16_agents = list(
+                top16_col.find(
+                    {"date": {"$lte": target_date_str}},
+                    {"agent_id": 1, f"roi_{window_days}d": 1, "date": 1}
+                ).sort("date", -1).limit(16)
+            )
+
+            if top16_agents:
+                fecha_usada = top16_agents[0].get("date")
+                logger.info(f"[STOP_LOSS_CHECK] Usando Top 16 de fecha {fecha_usada} (más reciente disponible)")
+            else:
+                logger.error(f"[STOP_LOSS_CHECK] No se encontró ningún Top 16 disponible en {top16_collection_name}")
+                return {
+                    "success": False,
+                    "message": "No hay agentes Top 16 disponibles (ninguna fecha)",
+                    "fecha": target_date.date().isoformat(),
+                    "total_cuentas_verificadas": 0,
+                    "cuentas_con_stop_loss": 0,
+                    "cuentas_rotadas": 0,
+                    "cuentas_con_error": 0,
+                    "threshold_aplicado": stop_loss_threshold * 100,
+                    "rotaciones": [],
+                    "detalles_stop_loss": []
+                }
+
+        top16_agent_ids = [a["agent_id"] for a in top16_agents]
+        logger.debug(f"[STOP_LOSS_CHECK] Agentes Top 16 disponibles: {len(top16_agent_ids)}")
+
+        # 3. Verificar cada cuenta y rotar si alcanzó stop loss
+        cuentas_con_stop_loss = []
+        rotaciones_exitosas = []
+        errores = []
+
+        for cuenta in cuentas:
+            try:
+                # Calcular ROI de la cuenta con su agente actual
+                balance_inicio = cuenta.get("balance_inicial", 1000.0)
+                balance_actual = cuenta.get("balance_actual", balance_inicio)
+
+                # Obtener el historial actual para calcular el ROI desde la última asignación
+                historial_actual = self.historial_col.find_one(
+                    {"cuenta_id": cuenta["cuenta_id"], "fecha_fin": None},
+                    sort=[("fecha_inicio", -1)]
+                )
+
+                if historial_actual:
+                    balance_inicio_agente = historial_actual["balance_inicio"]
+                    roi_cuenta = ((balance_actual - balance_inicio_agente) / balance_inicio_agente) if balance_inicio_agente > 0 else 0
+                else:
+                    # Si no hay historial activo, usar balance inicial total
+                    roi_cuenta = ((balance_actual - balance_inicio) / balance_inicio) if balance_inicio > 0 else 0
+
+                # Verificar si alcanzó el stop loss
+                if roi_cuenta <= stop_loss_threshold:
+                    logger.info(
+                        f"[STOP_LOSS] Cuenta {cuenta['cuenta_id']} alcanzó stop loss: "
+                        f"ROI={roi_cuenta*100:.2f}%, Agente={cuenta['agente_actual']}"
+                    )
+
+                    cuentas_con_stop_loss.append({
+                        "cuenta_id": cuenta["cuenta_id"],
+                        "nombre_cliente": cuenta["nombre_cliente"],
+                        "agente_actual": cuenta["agente_actual"],
+                        "roi_perdido": roi_cuenta * 100,
+                        "balance_actual": balance_actual
+                    })
+
+                    # Buscar un nuevo agente (excluir el actual)
+                    agentes_disponibles = [a for a in top16_agent_ids if a != cuenta["agente_actual"]]
+
+                    if not agentes_disponibles:
+                        logger.warning(f"[STOP_LOSS] No hay agentes disponibles para rotar {cuenta['cuenta_id']}")
+                        errores.append(cuenta["cuenta_id"])
+                        continue
+
+                    # Seleccionar el mejor agente disponible (primero de la lista)
+                    nuevo_agente_id = agentes_disponibles[0]
+                    nuevo_agente_data = next(a for a in top16_agents if a["agent_id"] == nuevo_agente_id)
+                    nuevo_roi_agente = nuevo_agente_data.get(f"roi_{window_days}d", 0.0)
+
+                    # Ejecutar la rotación
+                    # NOTA: Usar 'rotacion' en lugar de 'stop_loss_cuenta' por el schema de MongoDB
+                    self._rotate_single_account(
+                        cuenta_id=cuenta["cuenta_id"],
+                        nuevo_agente_id=nuevo_agente_id,
+                        nuevo_roi_agente=nuevo_roi_agente,
+                        fecha_rotacion=target_date,
+                        motivo="rotacion",  # Valores permitidos: 'inicial', 're-balanceo', 'rotacion'
+                        balance_actual=balance_actual,
+                        simulation_id=simulation_id
+                    )
+
+                    rotaciones_exitosas.append({
+                        "cuenta_id": cuenta["cuenta_id"],
+                        "agente_anterior": cuenta["agente_actual"],
+                        "agente_nuevo": nuevo_agente_id,
+                        "roi_perdido": roi_cuenta * 100,
+                        "balance_actual": balance_actual
+                    })
+
+                    logger.info(
+                        f"[STOP_LOSS] Cuenta {cuenta['cuenta_id']} rotada: "
+                        f"{cuenta['agente_actual']} → {nuevo_agente_id}"
+                    )
+
+            except Exception as e:
+                logger.error(f"[STOP_LOSS] Error procesando cuenta {cuenta['cuenta_id']}: {str(e)}")
+                errores.append(cuenta["cuenta_id"])
+
+        # 4. Resumen final
+        logger.info(
+            f"[STOP_LOSS_CHECK] Resumen: {len(cuentas_con_stop_loss)} cuentas con stop loss, "
+            f"{len(rotaciones_exitosas)} rotadas exitosamente, {len(errores)} errores"
+        )
+
+        return {
+            "success": True,
+            "fecha": target_date.date().isoformat(),
+            "total_cuentas_verificadas": len(cuentas),
+            "cuentas_con_stop_loss": len(cuentas_con_stop_loss),
+            "cuentas_rotadas": len(rotaciones_exitosas),
+            "cuentas_con_error": len(errores),
+            "threshold_aplicado": stop_loss_threshold * 100,
+            "rotaciones": rotaciones_exitosas,
+            "detalles_stop_loss": cuentas_con_stop_loss
+        }
+
+    def _rotate_single_account(
+        self,
+        cuenta_id: str,
+        nuevo_agente_id: str,
+        nuevo_roi_agente: float,
+        fecha_rotacion: datetime,
+        motivo: str,
+        balance_actual: float,
+        simulation_id: str = None
+    ) -> None:
+        """
+        Rota una cuenta individual a un nuevo agente.
+
+        Args:
+            cuenta_id: ID de la cuenta a rotar
+            nuevo_agente_id: ID del nuevo agente
+            nuevo_roi_agente: ROI del nuevo agente
+            fecha_rotacion: Fecha de la rotación
+            motivo: Motivo de la rotación ('stop_loss_cuenta', 'rotacion', etc.)
+            balance_actual: Balance actual de la cuenta
+            simulation_id: ID de la simulación (opcional)
+        """
+        # 1. Cerrar el historial actual (fecha_fin = fecha_rotacion)
+        # OPTIMIZACIÓN: Traer solo campos necesarios y ordenar por fecha
+        historial_actual = self.historial_col.find_one(
+            {"cuenta_id": cuenta_id, "fecha_fin": None},
+            {"balance_inicio": 1, "fecha_inicio": 1, "_id": 1},
+            sort=[("fecha_inicio", -1)]
+        )
+
+        if historial_actual:
+            # Calcular ROI ganado/perdido con el agente anterior
+            balance_inicio = historial_actual["balance_inicio"]
+            roi_ganado = ((balance_actual - balance_inicio) / balance_inicio) * 100 if balance_inicio > 0 else 0
+
+            # Calcular días con el agente
+            # Normalizar ambas fechas a date() para evitar problemas de tipos
+            fecha_fin_date = fecha_rotacion.date() if hasattr(fecha_rotacion, 'date') else fecha_rotacion
+            fecha_inicio_hist = historial_actual["fecha_inicio"]
+            fecha_inicio_date = fecha_inicio_hist.date() if hasattr(fecha_inicio_hist, 'date') else fecha_inicio_hist
+            dias_con_agente = (fecha_fin_date - fecha_inicio_date).days
+
+            # Actualizar historial: cerrar asignación anterior
+            self.historial_col.update_one(
+                {"_id": historial_actual["_id"]},
+                {
+                    "$set": {
+                        "fecha_fin": fecha_rotacion,
+                        "balance_fin": balance_actual,
+                        "roi_cuenta_ganado": roi_ganado,
+                        "dias_con_agente": dias_con_agente,
+                        "motivo_cambio": motivo
+                    }
+                }
+            )
+
+        # 2. Crear nueva entrada en historial
+        nueva_asignacion = {
+            "cuenta_id": cuenta_id,
+            "nombre_cliente": self.cuentas_trading_col.find_one({"cuenta_id": cuenta_id})["nombre_cliente"],
+            "agente_id": nuevo_agente_id,
+            "simulation_id": simulation_id or "unknown",  # Campo requerido por el schema
+            "fecha_inicio": fecha_rotacion,
+            "fecha_fin": None,
+            "roi_agente_inicio": nuevo_roi_agente,
+            "roi_agente_fin": None,
+            "roi_cuenta_ganado": None,
+            "balance_inicio": balance_actual,
+            "balance_fin": None,
+            "motivo_cambio": motivo,
+            "dias_con_agente": None
+        }
+        self.historial_col.insert_one(nueva_asignacion)
+
+        # 3. Actualizar cuenta con nuevo agente
+        self.cuentas_trading_col.update_one(
+            {"cuenta_id": cuenta_id},
+            {
+                "$set": {
+                    "agente_actual": nuevo_agente_id,
+                    "fecha_asignacion_agente": fecha_rotacion,
+                    "roi_agente_al_asignar": nuevo_roi_agente,
+                    "numero_cambios_agente": self.cuentas_trading_col.find_one({"cuenta_id": cuenta_id})["numero_cambios_agente"] + 1,
+                    "updated_at": fecha_rotacion
+                }
+            }
+        )
+
+        logger.debug(f"[ROTATE_ACCOUNT] Cuenta {cuenta_id} rotada a {nuevo_agente_id} por {motivo}")

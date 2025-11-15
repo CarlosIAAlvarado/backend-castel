@@ -1,37 +1,39 @@
-"""
-Script para verificar colecciones disponibles.
-"""
+from app.config.database import database_manager
+import sys
+import io
 
-from pymongo import MongoClient
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-MONGODB_URI = "mongodb+srv://calvarado:Andresito111@ivy.beuwz4f.mongodb.net/?retryWrites=true&w=majority&appName=ivy"
-DATABASE_NAME = "simulacion_casterly_rock"
+database_manager.connect()
+db = database_manager.get_database()
 
-client = MongoClient(MONGODB_URI)
-db = client[DATABASE_NAME]
+end_date = "2025-06-08"
 
-print("Colecciones con 'top16' en el nombre:")
-print("="*60)
+print("=" * 80)
+print("VERIFICACION DE COLECCIONES")
+print("=" * 80)
 
-for col_name in sorted(db.list_collection_names()):
-    if 'top16' in col_name.lower():
-        count = db[col_name].count_documents({})
-        sample = db[col_name].find_one()
+# Verificar en que coleccion estan los datos
+collections_to_check = ["top16_3d", "top16_5d", "top16_7d", "top16_10d", "top16_15d", "top16_30d"]
 
-        print(f"\n{col_name}:")
-        print(f"  Documentos: {count}")
+print("\nBuscando datos del 2025-06-08 en todas las colecciones top16:")
+print("-" * 80)
 
-        if sample:
-            date = sample.get('date', 'N/A')
-            print(f"  Fecha ejemplo: {date}")
+for coll_name in collections_to_check:
+    count = db[coll_name].count_documents({"date": end_date})
+    print(f"{coll_name}: {count} registros")
 
-print("\n" + "="*60)
-print("\nColecciones con 'roi' en el nombre:")
-print("="*60)
+    if count > 0:
+        sample = db[coll_name].find_one({"date": end_date})
+        print(f"  Ejemplo: {sample.get('agent_id')} - rank {sample.get('rank')}")
 
-for col_name in sorted(db.list_collection_names()):
-    if 'roi' in col_name.lower() and 'top16' not in col_name.lower():
-        count = db[col_name].count_documents({})
-        print(f"{col_name}: {count} documentos")
+# Verificar agent_roi
+print("\nBuscando datos ROI del 2025-06-08:")
+print("-" * 80)
+roi_collections = ["agent_roi_3d", "agent_roi_5d", "agent_roi_7d"]
 
-client.close()
+for coll_name in roi_collections:
+    count = db[coll_name].count_documents({"target_date": end_date})
+    print(f"{coll_name}: {count} registros")
+
+print("\n" + "=" * 80)

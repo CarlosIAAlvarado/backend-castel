@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import date, timedelta
 import logging
 from app.application.services.selection_service import SelectionService
@@ -8,6 +8,7 @@ from app.application.services.exit_rules_service import ExitRulesService
 from app.application.services.replacement_service import ReplacementService
 from app.application.services.client_accounts_simulation_service import ClientAccountsSimulationService
 from app.application.services.simulation_response_builder import SimulationResponseBuilder
+# RebalancingService ELIMINADO - FLUJO REAL: No hay rebalanceos programados
 from app.domain.repositories.agent_state_repository import AgentStateRepository
 from app.infrastructure.repositories.daily_roi_repository import DailyROIRepository
 from app.infrastructure.repositories.roi_7d_repository import ROI7DRepository
@@ -20,18 +21,25 @@ class DailyOrchestratorService:
     """
     Servicio orquestador para la simulacion diaria completa.
 
-    VERSION 2.0 - NUEVA LOGICA ROI
-    Ahora incluye limpieza de cache al inicio y usa nueva logica de calculo ROI.
+    VERSION 4.0 - FLUJO REAL (SIN REBALANCEO PROGRAMADO)
+
+    FLUJO CORRECTO:
+    - window_days = KPI a evaluar (ROI_3d, ROI_5d, ROI_7d, etc.)
+    - ROI con ventana deslizante: ROI_Nd = (Σ P&L últimos N días) / Balance_inicial_(t-N+1)
+    - NO existe rebalanceo programado
+    - Rotaciones ocurren SOLO cuando un agente es expulsado por reglas
+    - Las cuentas se mantienen con sus agentes salvo expulsión
 
     Coordina todos los servicios para ejecutar el flujo diario:
-    1. Limpiar cache temporal (daily_roi_calculation, agent_roi_7d)
-    2. Calcular KPIs (ROI, ranking) con nueva logica
+    1. Calcular ROI con ventana deslizante (TODOS los días)
+    2. Formar Top 16 actual
     3. Clasificar estados (GROWTH/FALL)
-    4. Evaluar reglas de salida
-    5. Ejecutar rotaciones si es necesario
-    6. Actualizar asignaciones
-
-    Periodo: 01-Sep-2025 a 07-Oct-2025
+    4. Evaluar y aplicar reglas de salida:
+       - 3 días consecutivos de pérdida (desde entrada al Top)
+       - -10% acumulado (desde entrada al Top)
+    5. Comparar Top hoy vs Top ayer
+    6. Rotar SOLO las cuentas de agentes expulsados/reemplazados
+    7. Actualizar asignaciones y crear snapshots
     """
 
     def __init__(
@@ -44,12 +52,13 @@ class DailyOrchestratorService:
         state_repo: AgentStateRepository,
         daily_roi_repo: DailyROIRepository,
         roi_7d_repo: ROI7DRepository,
-        client_accounts_sync_service: Optional[ClientAccountsSimulationService] = None
+        client_accounts_sync_service: Optional[ClientAccountsSimulationService] = None,
+        status_repo: Optional[Any] = None
     ):
         """
         Constructor con inyeccion de dependencias.
 
-        VERSION 3.0: Agregado servicio de sincronizacion de client accounts
+        VERSION 5.0 - FLUJO REAL: Eliminado RebalancingService
 
         Args:
             selection_service: Servicio de seleccion de agentes
@@ -71,6 +80,10 @@ class DailyOrchestratorService:
         self.daily_roi_repo = daily_roi_repo
         self.roi_7d_repo = roi_7d_repo
         self.client_accounts_sync = client_accounts_sync_service
+        self.status_repo = status_repo
+
+        # Cache para optimización de performance
+        self._top16_cache = {}  # {(date, window_days): top16_data}
 
     async def process_day_one(
         self,
@@ -102,16 +115,16 @@ class DailyOrchestratorService:
         Returns:
             Diccionario con resultado del dia 1
         """
-        logger.info(f"Processing Day One: {target_date}")
+        logger.debug(f"Processing Day One: {target_date} with window_days={window_days}")
 
-        top16, top16_all = await self.selection_service.select_top_16(target_date)
+        top16, top16_all = await self.selection_service.select_top_16(target_date, window_days=window_days)
 
         casterly_agent_ids = [agent["agent_id"] for agent in top16]
 
         logger.info(f"Top 16 selected: {len(casterly_agent_ids)} agents")
 
         self.selection_service.save_top16_to_database(
-            target_date, top16, casterly_agent_ids
+            target_date, top16, casterly_agent_ids, window_days=window_days
         )
 
         assignment_result = self.assignment_service.create_initial_assignments(
@@ -163,13 +176,14 @@ class DailyOrchestratorService:
         # Preparar datos completos del Top 16 con ROI
         # IMPORTANTE: Usar campo dinamico basado en window_days (roi_3d, roi_7d, roi_30d, etc.)
         roi_field = f"roi_{window_days}d"
+        trades_field = f"total_trades_{window_days}d"
         top_16_with_data = [
             {
                 "userId": agent["userId"],
-                "roi_7d": agent.get(roi_field, 0.0),  # Mantener nombre "roi_7d" para compatibilidad con frontend
+                roi_field: agent.get(roi_field, 0.0),  # Campo dinamico segun window_days
                 "total_pnl": agent.get("total_pnl", 0.0),
                 "balance": agent.get("balance_current", 0.0),
-                "total_trades_7d": agent.get("total_trades_7d", 0),
+                trades_field: agent.get("total_trades_7d", 0),  # TODO: Este tambien debe ser dinamico en bulk_service
                 "rank": agent.get("rank", idx + 1)
             }
             for idx, agent in enumerate(top16)
@@ -239,6 +253,9 @@ class DailyOrchestratorService:
             top30_candidates = []
         return top30_candidates
 
+    # TODO: Método calculate_roi_with_sliding_window() será implementado después
+    # cuando se agreguen los métodos necesarios en BalanceRepository y MovementRepository
+
     async def _calculate_and_save_top16(
         self,
         target_date: date,
@@ -266,7 +283,7 @@ class DailyOrchestratorService:
         top16 = ranked_agents[:16]
 
         self.selection_service.save_top16_to_database(
-            target_date, top16, current_casterly_agents
+            target_date, top16, current_casterly_agents, window_days=window_days
         )
 
         return top16
@@ -288,11 +305,7 @@ class DailyOrchestratorService:
         Returns:
             tuple: (rotations_executed, new_agents_to_classify)
         """
-        evaluation_result = self.exit_rules_service.evaluate_all_agents(
-            target_date,
-            fall_threshold=CONSECUTIVE_FALL_THRESHOLD,
-            stop_loss_threshold=STOP_LOSS_THRESHOLD
-        )
+        evaluation_result = self.exit_rules_service.evaluate_all_agents(target_date)
 
         agents_to_exit = evaluation_result["agents_to_exit"]
         rotations_executed = []
@@ -310,7 +323,7 @@ class DailyOrchestratorService:
             )
 
             if mark_result["success"]:
-                replacement_agent = self.replacement_service.find_replacement_agent(
+                replacement_agent = await self.replacement_service.find_replacement_agent(
                     target_date,
                     current_casterly_agents,
                     window_days
@@ -346,6 +359,9 @@ class DailyOrchestratorService:
                         total_aum=transfer_result["total_aum_transferred"]
                     )
 
+                    # Usar campos dinámicos según window_days
+                    roi_field = f"roi_{window_days}d"
+
                     replacement_result = {
                         "success": True,
                         "date": target_date.isoformat(),
@@ -354,9 +370,9 @@ class DailyOrchestratorService:
                         "reason": reason_str,
                         "n_accounts_transferred": transfer_result["n_accounts_transferred"],
                         "total_aum_transferred": transfer_result["total_aum_transferred"],
-                        "agent_out_roi_7d": roi_7d_out,
+                        f"agent_out_{roi_field}": roi_7d_out,  # Campo dinámico: agent_out_roi_3d, etc.
                         "agent_out_roi_total": roi_total_out,
-                        "agent_in_roi_7d": replacement_agent.get("roi_7d", 0.0),
+                        f"agent_in_{roi_field}": replacement_agent.get("roi_7d", 0.0),  # Campo dinámico: agent_in_roi_3d, etc.
                         "rotation_log_id": rotation_log.id
                     }
 
@@ -367,6 +383,8 @@ class DailyOrchestratorService:
                     new_agents_to_classify.append(agent_in)
 
         return rotations_executed, new_agents_to_classify
+
+    # MÉTODO _execute_rebalancing ELIMINADO - FLUJO REAL: No hay rebalanceos programados
 
     async def _sync_client_accounts(
         self,
@@ -455,6 +473,7 @@ class DailyOrchestratorService:
     async def process_daily(
         self,
         target_date: date,
+        current_day: int,
         update_client_accounts: bool = False,
         simulation_id: Optional[str] = None,
         window_days: int = 7,
@@ -463,28 +482,31 @@ class DailyOrchestratorService:
         """
         Procesa un dia normal de simulacion (02-Sep en adelante).
 
-        VERSION 3.0: Integrado con sincronizacion de Client Accounts
-        Esta función ha sido refactorizada para reducir complejidad (16 -> ~8).
+        VERSION 5.0 - FLUJO REAL (SIN REBALANCEO PROGRAMADO)
 
-        Pasos:
-        1. Calcular ROI diario y clasificar estados (nueva logica)
-        2. Guardar Top 16 del dia
-        3. Evaluar reglas de salida
-        4. Ejecutar rotaciones si es necesario
-        5. Actualizar lista de Casterly activos
-        6. (NUEVO) Sincronizar cuentas de clientes si update_client_accounts=True
+        Orden de ejecución según flujo real:
+        1. Calcular ROI con ventana deslizante (TODOS los días)
+        2. Seleccionar Top 16 actual y guardar
+        3. Clasificar estados (GROWTH/FALL)
+        4. Aplicar reglas de salida (Stop Loss desde entrada, 3 días FALL desde entrada)
+        5. Comparar Top hoy vs Top ayer
+        6. Rotar SOLO las cuentas de agentes expulsados/reemplazados
+        7. Sincronizar cuentas de clientes
+
+        IMPORTANTE: NO existe rebalanceo programado. Rotaciones ocurren SOLO por expulsión.
 
         Args:
             target_date: Fecha del dia a procesar
+            current_day: Número de día en la simulación (1, 2, 3, ..., 30)
             update_client_accounts: Si True, sincroniza cuentas de clientes. Default: False
             simulation_id: ID de la simulacion (requerido si update_client_accounts=True)
-            window_days: Ventana de días para ROI (3, 5, 7, 10, 15, 30). Default: 7
+            window_days: KPI a evaluar (3, 5, 7, 10, 15, 30). Default: 7
             dry_run: Si True, simula cambios sin guardar. Default: False
 
         Returns:
             Diccionario con resultado del dia
         """
-        logger.info(f"Processing daily: {target_date}")
+        logger.info(f"=== PROCESANDO DÍA {current_day}: {target_date} (window={window_days}d) ===")
 
         # 1. Obtener agentes activos en Casterly
         current_casterly_agents = self._get_current_casterly_agents(target_date)
@@ -510,27 +532,72 @@ class DailyOrchestratorService:
             window_days
         )
 
-        # 5. Clasificar estados de todos los agentes activos
+        # 5. FLUJO REAL: Detectar agentes nuevos vs agentes que ya estaban
+        # Obtener Top 16 del día anterior para comparar
+        previous_top16_records = self.selection_service.get_top16_by_date(
+            target_date - timedelta(days=1)
+        )
+        previous_casterly_ids = {
+            record.agent_id for record in previous_top16_records
+            if record.is_in_casterly
+        } if previous_top16_records else set()
+
+        # Identificar nuevos agentes que entraron hoy al Top
+        current_top16_ids = {agent["agent_id"] for agent in top16}
+        new_entries = current_top16_ids - previous_casterly_ids
+
+        logger.info(
+            f"[ENTRY_DETECTION] Día {current_day}: "
+            f"{len(new_entries)} nuevos agentes entraron al Top 16: {list(new_entries)}"
+        )
+
+        # 6. Clasificar estados de todos los agentes activos
+        # Para agentes nuevos, marcar is_new_entry=True para resetear entry_date
         classification_result = await self.state_service.classify_all_agents(
             target_date,
             current_casterly_agents
         )
 
-        # 6. Procesar rotaciones (evaluar + ejecutar)
+        # Actualizar entry_date para nuevos agentes manualmente
+        for agent_id in new_entries:
+            if agent_id in current_casterly_agents:
+                agent_state = self.state_repo.get_by_agent_and_date(agent_id, target_date)
+                if agent_state:
+                    self.state_repo.update_state(
+                        agent_id,
+                        target_date,
+                        {
+                            "entry_date": target_date.isoformat(),  # Convertir a string ISO
+                            "roi_since_entry": agent_state.roi_day  # Comienza desde ROI del día de entrada
+                        }
+                    )
+                    logger.info(
+                        f"[ENTRY_RESET] {agent_id} - entry_date actualizado a {target_date.isoformat()}, "
+                        f"roi_since_entry reseteo a {agent_state.roi_day:.4f}"
+                    )
+
+        # 7. Procesar rotaciones (evaluar + ejecutar)
         rotations_executed, new_agents_to_classify = await self._process_rotations(
             target_date,
             current_casterly_agents,
             window_days
         )
 
-        # 7. Clasificar nuevos agentes que entraron por rotación
+        # 8. Clasificar nuevos agentes que entraron por rotación
         if new_agents_to_classify:
-            await self.state_service.classify_all_agents(
-                target_date,
-                new_agents_to_classify
-            )
+            # Marcar estos agentes como nuevas entradas
+            for agent_id in new_agents_to_classify:
+                await self.state_service.classify_state(
+                    agent_id,
+                    target_date,
+                    is_new_entry=True
+                )
 
-        # 8. Sincronizar cuentas de clientes (si está habilitado)
+        # 9. FLUJO REAL: No hay verificación de días de rebalanceo
+        # Las rotaciones ya se ejecutaron en paso 7 (_process_rotations)
+        logger.debug(f"Día {current_day}: Rotaciones ejecutadas basadas en reglas de expulsión únicamente")
+
+        # 10. Sincronizar cuentas de clientes (si está habilitado)
         client_accounts_result = await self._sync_client_accounts(
             target_date,
             update_client_accounts,
@@ -539,13 +606,25 @@ class DailyOrchestratorService:
             dry_run
         )
 
-        # 9. Construir respuesta con todos los datos del día
+        # 10.5. Verificar y rotar cuentas que alcanzaron stop loss individual (-10%)
+        stop_loss_result = None
+        if update_client_accounts and simulation_id and self.client_accounts_sync:
+            logger.info(f"[STOP_LOSS_CHECK] Iniciando verificación de stop loss para cuentas de clientes")
+            from datetime import datetime
+            stop_loss_result = self.client_accounts_sync.client_accounts_service.check_and_rotate_stop_loss_accounts(
+                simulation_id=simulation_id,
+                target_date=datetime.combine(target_date, datetime.min.time()),
+                window_days=window_days,
+                stop_loss_threshold=-0.10
+            )
+            logger.info(
+                f"[STOP_LOSS_CHECK] Resultado: {stop_loss_result['cuentas_con_stop_loss']} cuentas con stop loss, "
+                f"{stop_loss_result['cuentas_rotadas']} rotadas exitosamente"
+            )
+
+        # 11. Construir respuesta con todos los datos del día
         # Necesitamos volver a obtener evaluation_result para la respuesta
-        evaluation_result = self.exit_rules_service.evaluate_all_agents(
-            target_date,
-            fall_threshold=CONSECUTIVE_FALL_THRESHOLD,
-            stop_loss_threshold=STOP_LOSS_THRESHOLD
-        )
+        evaluation_result = self.exit_rules_service.evaluate_all_agents(target_date)
 
         result = self._build_response_data(
             target_date,
@@ -557,6 +636,14 @@ class DailyOrchestratorService:
             client_accounts_result,
             window_days
         )
+
+        # Agregar resultado de stop loss si existe
+        if stop_loss_result:
+            result["stop_loss_check"] = stop_loss_result
+
+        # FLUJO REAL: No hay información de rebalanceo programado
+
+        logger.info(f"=== DÍA {current_day} COMPLETADO ===")
 
         return result
 
@@ -689,13 +776,14 @@ class DailyOrchestratorService:
         # Preparar datos completos del Top 16 con ROI
         # IMPORTANTE: Usar campo dinamico basado en window_days (roi_3d, roi_7d, roi_30d, etc.)
         roi_field = f"roi_{window_days}d"
+        trades_field = f"total_trades_{window_days}d"
         top_16_with_data = [
             {
                 "userId": agent["userId"],
-                "roi_7d": agent.get(roi_field, 0.0),  # Mantener nombre "roi_7d" para compatibilidad con frontend
+                roi_field: agent.get(roi_field, 0.0),  # Campo dinamico segun window_days
                 "total_pnl": agent.get("total_pnl", 0.0),
                 "balance": agent.get("balance_current", 0.0),
-                "total_trades_7d": agent.get("total_trades_7d", 0),
+                trades_field: agent.get("total_trades_7d", 0),  # TODO: Este tambien debe ser dinamico en bulk_service
                 "rank": agent.get("rank", idx + 1)
             }
             for idx, agent in enumerate(top16)
@@ -772,6 +860,11 @@ class DailyOrchestratorService:
         Returns:
             Diccionario con resumen completo de la simulacion
         """
+        logger.info("=" * 80)
+        logger.info(f"DEBUG: run_simulation() LLAMADO CORRECTAMENTE")
+        logger.info(f"DEBUG: start_date={start_date}, end_date={end_date}, window_days={window_days}")
+        logger.info("=" * 80)
+
         if start_date > end_date:
             logger.error(
                 f"Invalid date range: start_date ({start_date}) > end_date ({end_date})"
@@ -799,7 +892,18 @@ class DailyOrchestratorService:
         daily_results = []
         current_date = start_date
 
-        logger.info(f"Processing Day One: {current_date}")
+        # Calcular total de días para el progreso
+        total_days = (end_date - start_date).days + 1
+
+        logger.debug(f"Processing Day One: {current_date}")
+
+        # Actualizar progreso: Día 1
+        if self.status_repo:
+            self.status_repo.update_progress(
+                current_day=1,
+                message=f"Procesando día 1/{total_days}: {current_date}"
+            )
+
         day_one_result = await self.process_day_one(
             current_date,
             update_client_accounts=update_client_accounts,
@@ -810,11 +914,21 @@ class DailyOrchestratorService:
         daily_results.append(day_one_result)
 
         current_date += timedelta(days=1)
+        current_day = 2  # Día 1 ya fue procesado
 
         while current_date <= end_date:
-            logger.info(f"Processing day: {current_date}")
+            logger.debug(f"Processing day {current_day}: {current_date}")
+
+            # Actualizar progreso
+            if self.status_repo:
+                self.status_repo.update_progress(
+                    current_day=current_day,
+                    message=f"Procesando día {current_day}/{total_days}: {current_date}"
+                )
+
             daily_result = await self.process_daily(
                 current_date,
+                current_day=current_day,
                 update_client_accounts=update_client_accounts,
                 simulation_id=simulation_id,
                 window_days=window_days,
@@ -822,6 +936,7 @@ class DailyOrchestratorService:
             )
             daily_results.append(daily_result)
             current_date += timedelta(days=1)
+            current_day += 1
 
         total_rotations = sum(
             result.get("rotations_executed", 0) for result in daily_results
@@ -867,12 +982,13 @@ class DailyOrchestratorService:
                 "simulation_id": simulation_id
             }
 
+        total_days = (end_date - start_date).days + 1
         return {
             "success": True,
             "simulation_period": {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
-                "total_days": len(daily_results),
+                "total_days": total_days,
             },
             "summary": summary,
             "daily_results": daily_results,

@@ -9,6 +9,11 @@ Referencias:
 - Sección 3: REGLAS DE EXPULSIÓN DEL TOP 16
 - Sección 4: SELECCIÓN DE AGENTE DE REEMPLAZO
 - Sección 10: REGLAS DE NEGOCIO ADICIONALES
+
+FLUJO REAL:
+- NO existen rebalanceos programados
+- Rotaciones ocurren SOLO cuando un agente es expulsado
+- Las cuentas se mantienen con sus agentes salvo expulsión
 """
 
 # ===== REGLAS DE EXPULSIÓN (Sección 3) =====
@@ -18,8 +23,10 @@ STOP_LOSS_THRESHOLD = -0.10
 Umbral de Stop Loss: -10%
 
 Según especificación sección 3.2:
-Si el ROI de un agente alcanza -10% o peor (ROI ≤ -0.10),
+Si el ROI ACUMULADO de un agente DESDE QUE ENTRÓ AL TOP alcanza -10% o peor,
 es expulsado inmediatamente del Top 16.
+
+IMPORTANTE: Se mide desde la fecha de entrada al Top, NO desde inicio de simulación.
 
 Esta regla tiene prioridad sobre la regla de 3 días consecutivos.
 """
@@ -29,9 +36,10 @@ CONSECUTIVE_FALL_THRESHOLD = 3
 Umbral de caídas consecutivas: 3 días
 
 Según especificación sección 3.1:
-Si un agente tiene 3 días SEGUIDOS con ROI negativo (ROI < 0),
-es expulsado inmediatamente del Top 16.
+Si un agente tiene 3 días SEGUIDOS con ROI negativo (ROI < 0)
+DESDE QUE ENTRÓ AL TOP, es expulsado inmediatamente del Top 16.
 
+IMPORTANTE: Se cuentan solo días desde que entró al Top.
 Nota: Días con ROI = 0 (sin operaciones) NO cuentan como pérdida.
 """
 

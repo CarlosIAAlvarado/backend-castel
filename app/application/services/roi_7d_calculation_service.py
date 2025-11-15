@@ -1,17 +1,18 @@
 """
 Servicio para calcular el ROI de 7 días de un agente.
 
-Implementa la NUEVA LÓGICA (compuesta):
+Implementa la fórmula correcta:
 1. Calcular ROI diario para cada día en la ventana [T-7, T]
-2. Agregar usando fórmula compuesta (multiplicativa)
-3. Guardar resultado en agent_roi_7d
+2. Sumar todos los P&L de la ventana
+3. Dividir entre el balance inicial (primer día de la ventana)
+4. Guardar resultado en agent_roi_7d
 
-Fórmula (financieramente correcta):
-ROI_7D = (1 + ROI_día_1) * (1 + ROI_día_2) * ... * (1 + ROI_día_N) - 1
+Fórmula correcta:
+ROI_7D = (Σ P&L últimos 7 días) / Balance_inicial_(t-7)
 
 Author: Sistema Casterly Rock
 Date: 2025-10-19
-Version: 2.1
+Version: 2.2 - Corregida fórmula de ROI
 """
 
 import logging
@@ -186,12 +187,12 @@ class ROI7DCalculationService:
             for dr in daily_rois
         ]
 
-        # Calcular ROI total usando fórmula compuesta (multiplicativa)
-        roi_compound = 1.0
-        for dr in daily_rois:
-            roi_compound *= (1.0 + dr.roi_day)
-        roi_7d_total = roi_compound - 1.0
+        # Calcular ROI total usando FORMULA CORRECTA
+        # Formula: ROI_7D = (Σ P&L últimos 7 días) / Balance_inicial_(t-7)
+        # Balance inicial = balance_base del primer día de la ventana
+        balance_inicial = daily_rois[0].balance_base if daily_rois else 0.0
         total_pnl_7d = sum(dr.total_pnl_day for dr in daily_rois)
+        roi_7d_total = total_pnl_7d / balance_inicial if balance_inicial > 0 else 0.0
         total_trades_7d = sum(dr.n_trades for dr in daily_rois)
 
         # Calcular métricas adicionales

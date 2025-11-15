@@ -779,46 +779,109 @@ async def get_account_history(
     """
     Obtiene el historial completo de asignaciones de agentes para una cuenta.
 
+    Para asignaciones activas (fecha_fin = null), calcula dinámicamente:
+    - balance_fin: Balance actual de la cuenta
+    - roi_cuenta_ganado: ROI ganado desde que se asignó el agente
+    - dias_con_agente: Días transcurridos desde la asignación
+
     Args:
         cuenta_id: ID de la cuenta
         service: Servicio de cuentas de clientes
 
     Returns:
-        Historial de asignaciones
+        Historial de asignaciones con datos calculados dinámicamente
 
     Raises:
         HTTPException: Si hay error al obtener historial
     """
     try:
+        from datetime import datetime, date
+
         logger.info(f"Obteniendo historial para cuenta {cuenta_id}")
+
+        # Obtener datos de la cuenta actual
+        cuenta = service.cuentas_trading_col.find_one({"cuenta_id": cuenta_id})
+        if not cuenta:
+            raise HTTPException(status_code=404, detail=f"Cuenta {cuenta_id} no encontrada")
 
         historial = list(
             service.historial_col.find({"cuenta_id": cuenta_id})
             .sort("fecha_inicio", -1)
         )
 
+        # Procesar historial
+        historial_procesado = []
+        for h in historial:
+            item = {
+                "agente_id": h["agente_id"],
+                "fecha_inicio": h["fecha_inicio"].isoformat(),
+                "fecha_fin": h["fecha_fin"].isoformat() if h["fecha_fin"] else None,
+                "roi_agente_inicio": h["roi_agente_inicio"],
+                "roi_agente_fin": h.get("roi_agente_fin"),
+                "roi_cuenta_ganado": h.get("roi_cuenta_ganado"),
+                "balance_inicio": h["balance_inicio"],
+                "balance_fin": h.get("balance_fin"),
+                "motivo_cambio": h["motivo_cambio"],
+                "dias_con_agente": h.get("dias_con_agente")
+            }
+
+            # Si es asignación activa (fecha_fin = null), calcular valores dinámicamente
+            if h["fecha_fin"] is None:
+                # Balance actual
+                item["balance_fin"] = cuenta.get("balance_actual", h["balance_inicio"])
+
+                # ROI ganado con este agente
+                balance_inicio = h["balance_inicio"]
+                balance_actual = cuenta.get("balance_actual", balance_inicio)
+                if balance_inicio > 0:
+                    item["roi_cuenta_ganado"] = ((balance_actual - balance_inicio) / balance_inicio) * 100
+                else:
+                    item["roi_cuenta_ganado"] = 0.0
+
+                # Días con el agente
+                fecha_inicio = h["fecha_inicio"]
+                if isinstance(fecha_inicio, str):
+                    fecha_inicio = datetime.fromisoformat(fecha_inicio).date()
+                elif isinstance(fecha_inicio, datetime):
+                    fecha_inicio = fecha_inicio.date()
+
+                # CORREGIDO: Usar la última fecha del snapshot en lugar de date.today()
+                # para reflejar correctamente los días en el contexto de la simulación
+                from app.config.database import database_manager
+                db = database_manager.get_database()
+                snapshots_col = db["client_accounts_snapshots"]
+
+                # Obtener el snapshot más reciente de esta cuenta
+                latest_snapshot = snapshots_col.find_one(
+                    {"accounts.cuenta_id": cuenta["cuenta_id"]},
+                    sort=[("target_date", -1)]
+                )
+
+                if latest_snapshot and latest_snapshot.get("target_date"):
+                    fecha_referencia = latest_snapshot["target_date"]
+                    if isinstance(fecha_referencia, datetime):
+                        fecha_referencia = fecha_referencia.date()
+                else:
+                    # Fallback a fecha actual si no hay snapshot
+                    fecha_referencia = date.today()
+
+                dias_transcurridos = (fecha_referencia - fecha_inicio).days
+                item["dias_con_agente"] = dias_transcurridos
+
+                logger.debug(f"Asignación activa calculada: agente={h['agente_id']}, días={dias_transcurridos}, ROI ganado={item['roi_cuenta_ganado']:.2f}%")
+
+            historial_procesado.append(item)
+
         return {
             "cuenta_id": cuenta_id,
-            "total_asignaciones": len(historial),
-            "historial": [
-                {
-                    "agente_id": h["agente_id"],
-                    "fecha_inicio": h["fecha_inicio"].isoformat(),
-                    "fecha_fin": h["fecha_fin"].isoformat() if h["fecha_fin"] else None,
-                    "roi_agente_inicio": h["roi_agente_inicio"],
-                    "roi_agente_fin": h.get("roi_agente_fin"),
-                    "roi_cuenta_ganado": h.get("roi_cuenta_ganado"),
-                    "balance_inicio": h["balance_inicio"],
-                    "balance_fin": h.get("balance_fin"),
-                    "motivo_cambio": h["motivo_cambio"],
-                    "dias_con_agente": h.get("dias_con_agente")
-                }
-                for h in historial
-            ]
+            "total_asignaciones": len(historial_procesado),
+            "historial": historial_procesado
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error al obtener historial: {str(e)}")
+        logger.error(f"Error al obtener historial: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
@@ -1042,4 +1105,213 @@ async def sync_with_simulation(
         raise
     except Exception as e:
         logger.error(f"Error en sincronizacion manual: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+@router.get("/agents")
+async def get_unique_agents(
+    simulation_id: Optional[str] = Query(None, description="ID de la simulacion")
+) -> Dict[str, Any]:
+    """
+    Obtiene la lista de agentes unicos que tienen cuentas asignadas.
+    Util para el filtro de agentes en el frontend.
+
+    Args:
+        simulation_id: ID de la simulacion (opcional)
+
+    Returns:
+        Dict con lista de agentes unicos
+
+    Example:
+        GET /api/client-accounts/agents?simulation_id=sim_20251115_143022
+    """
+    try:
+        db = database_manager.get_database()
+        cuentas_col = db["cuentas_clientes_trading"]
+
+        # Construir query
+        query = {}
+        if simulation_id:
+            query["simulation_id"] = simulation_id
+
+        # Obtener agentes unicos usando distinct
+        agents = cuentas_col.distinct("agente_actual", query)
+
+        # Filtrar None y ordenar
+        agents = [agent for agent in agents if agent]
+        agents.sort()
+
+        logger.info(f"Agentes unicos encontrados: {len(agents)}")
+
+        return {
+            "success": True,
+            "agents": agents,
+            "total": len(agents)
+        }
+
+    except Exception as e:
+        logger.error(f"Error al obtener agentes: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+@router.get("/compare-hypotheses")
+async def compare_hypotheses(
+    simulation_ids: str = Query(..., description="IDs de simulaciones separados por coma (ej: sim_3d,sim_5d,sim_7d)"),
+    target_date: Optional[str] = Query(None, description="Fecha de referencia (YYYY-MM-DD). Si no se proporciona, usa el snapshot más reciente")
+):
+    """
+    Compara el rendimiento de las cuentas de clientes entre diferentes hipótesis (window_days).
+
+    Este endpoint permite evaluar qué KPI (ROI_3d, ROI_5d, ROI_7d, etc.) generó mejores
+    resultados para las cuentas de clientes durante la simulación de 30 días.
+
+    Args:
+        simulation_ids: IDs de simulaciones separados por coma
+        target_date: Fecha de referencia opcional
+
+    Returns:
+        Comparación de métricas entre hipótesis
+
+    Example:
+        GET /api/client-accounts/compare-hypotheses?simulation_ids=sim_3d_2025-06-01,sim_5d_2025-06-01,sim_7d_2025-06-01
+    """
+    try:
+        from datetime import datetime
+        import numpy as np
+
+        db = database_manager.get_database()
+        snapshots_col = db["client_accounts_snapshots"]
+
+        # Parsear simulation_ids
+        sim_ids = [s.strip() for s in simulation_ids.split(",")]
+        logger.info(f"Comparando hipótesis: {sim_ids}")
+
+        results = []
+
+        for sim_id in sim_ids:
+            # Obtener el snapshot más reciente o de la fecha especificada
+            query = {"simulation_id": sim_id}
+
+            if target_date:
+                try:
+                    target_dt = datetime.fromisoformat(target_date)
+                    query["target_date"] = target_dt
+                except ValueError:
+                    raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {target_date}")
+
+            snapshot = snapshots_col.find_one(
+                query,
+                sort=[("target_date", -1)]
+            )
+
+            if not snapshot:
+                logger.warning(f"No se encontró snapshot para {sim_id}")
+                continue
+
+            accounts = snapshot.get("accounts", [])
+
+            if not accounts:
+                logger.warning(f"Sin cuentas en snapshot de {sim_id}")
+                continue
+
+            # Calcular métricas agregadas
+            balances = [acc["balance_actual"] for acc in accounts]
+            rois = [acc["roi_total"] for acc in accounts]
+            num_rotations = [acc.get("num_rotaciones", 0) for acc in accounts]
+
+            # Calcular estadísticas
+            avg_balance = np.mean(balances)
+            median_balance = np.median(balances)
+            std_balance = np.std(balances)
+            min_balance = np.min(balances)
+            max_balance = np.max(balances)
+
+            avg_roi = np.mean(rois)
+            median_roi = np.median(rois)
+            std_roi = np.std(rois)
+            min_roi = np.min(rois)
+            max_roi = np.max(rois)
+
+            # Cuentas con ganancia/pérdida
+            profitable_accounts = sum(1 for roi in rois if roi > 0)
+            loss_accounts = sum(1 for roi in rois if roi < 0)
+
+            # Drawdown (cuentas que perdieron más del 10%, 20%, etc.)
+            drawdown_10 = sum(1 for roi in rois if roi <= -10)
+            drawdown_20 = sum(1 for roi in rois if roi <= -20)
+
+            # Rotaciones
+            avg_rotations = np.mean(num_rotations)
+            total_rotations = sum(num_rotations)
+
+            # Extraer window_days del simulation_id si está en el formato
+            window_days = "N/A"
+            if "_" in sim_id:
+                parts = sim_id.split("_")
+                for part in parts:
+                    if part.endswith("d") and part[:-1].isdigit():
+                        window_days = part
+                        break
+
+            results.append({
+                "simulation_id": sim_id,
+                "window_days": window_days,
+                "target_date": snapshot["target_date"].isoformat() if snapshot.get("target_date") else None,
+                "total_accounts": len(accounts),
+                "balance": {
+                    "average": round(avg_balance, 2),
+                    "median": round(median_balance, 2),
+                    "std": round(std_balance, 2),
+                    "min": round(min_balance, 2),
+                    "max": round(max_balance, 2)
+                },
+                "roi": {
+                    "average": round(avg_roi, 2),
+                    "median": round(median_roi, 2),
+                    "std": round(std_roi, 2),
+                    "min": round(min_roi, 2),
+                    "max": round(max_roi, 2)
+                },
+                "performance": {
+                    "profitable_accounts": profitable_accounts,
+                    "profitable_percentage": round((profitable_accounts / len(accounts)) * 100, 2),
+                    "loss_accounts": loss_accounts,
+                    "loss_percentage": round((loss_accounts / len(accounts)) * 100, 2),
+                    "drawdown_10_pct": drawdown_10,
+                    "drawdown_20_pct": drawdown_20
+                },
+                "rotations": {
+                    "average_per_account": round(avg_rotations, 2),
+                    "total": total_rotations
+                }
+            })
+
+        if not results:
+            raise HTTPException(status_code=404, detail="No se encontraron snapshots para ninguna simulación")
+
+        # Ordenar por ROI promedio descendente
+        results.sort(key=lambda x: x["roi"]["average"], reverse=True)
+
+        # Identificar la mejor hipótesis
+        best_hypothesis = results[0] if results else None
+
+        return {
+            "success": True,
+            "comparison": results,
+            "best_hypothesis": {
+                "simulation_id": best_hypothesis["simulation_id"],
+                "window_days": best_hypothesis["window_days"],
+                "avg_roi": best_hypothesis["roi"]["average"],
+                "profitable_percentage": best_hypothesis["performance"]["profitable_percentage"]
+            } if best_hypothesis else None,
+            "summary": {
+                "total_hypotheses": len(results),
+                "evaluated_at": target_date or "latest_snapshot"
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al comparar hipótesis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")

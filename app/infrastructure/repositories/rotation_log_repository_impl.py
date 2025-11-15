@@ -1,5 +1,5 @@
 from typing import List
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from app.domain.repositories.rotation_log_repository import RotationLogRepository
 from app.domain.entities.rotation_log import RotationLog
 from app.config.database import database_manager
@@ -45,10 +45,12 @@ class RotationLogRepositoryImpl(RotationLogRepository):
         """Obtiene rotaciones en un rango de fechas."""
         collection = database_manager.get_collection(self.collection_name)
 
+        # Usar regex para capturar fechas con timestamp completo
+        # Ejemplo: date="2025-06-08" captura "2025-06-08" y "2025-06-08T12:34:56"
         docs = collection.find({
             "date": {
                 "$gte": start_date.isoformat(),
-                "$lte": end_date.isoformat()
+                "$lt": (end_date + timedelta(days=1)).isoformat()  # Incluir todo el día final
             }
         }).sort("date", 1)
 
@@ -88,9 +90,12 @@ class RotationLogRepositoryImpl(RotationLogRepository):
             agent_out=doc["agent_out"],
             agent_in=doc["agent_in"],
             reason=doc["reason"],
-            roi_7d_out=doc["roi_7d_out"],
+            window_days=doc.get("window_days"),  # Nuevo campo dinámico
+            roi_window_out=doc.get("roi_window_out"),  # Nuevo campo dinámico
             roi_total_out=doc["roi_total_out"],
-            roi_7d_in=doc["roi_7d_in"],
+            roi_window_in=doc.get("roi_window_in"),  # Nuevo campo dinámico
+            roi_7d_out=doc.get("roi_7d_out"),  # Legacy field
+            roi_7d_in=doc.get("roi_7d_in"),  # Legacy field
             n_accounts=doc["n_accounts"],
             total_aum=doc["total_aum"],
             createdAt=doc.get("createdAt")

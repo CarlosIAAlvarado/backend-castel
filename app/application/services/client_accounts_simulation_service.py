@@ -25,6 +25,7 @@ from app.domain.entities.client_accounts_sync_result import (
     RedistributionResult,
     Rotation
 )
+from app.application.services.client_accounts_service import ClientAccountsService
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ class ClientAccountsSimulationService:
         self.historial_col = db.historial_asignaciones_clientes
         self.snapshots_col = db.client_accounts_snapshots
         self.logger = logging.getLogger(__name__)
+
+        # Crear instancia de ClientAccountsService para acceso a métodos adicionales
+        self.client_accounts_service = ClientAccountsService(db)
 
     async def _check_and_handle_first_day(
         self,
@@ -253,7 +257,8 @@ class ClientAccountsSimulationService:
         target_date: date,
         simulation_id: str,
         window_days: int,
-        dry_run: bool
+        dry_run: bool,
+        save_snapshot: bool = True
     ) -> tuple[int, Optional[str]]:
         """
         Actualiza ROI de cuentas y guarda snapshot diario.
@@ -263,6 +268,7 @@ class ClientAccountsSimulationService:
             simulation_id: ID de simulación
             window_days: Ventana de días
             dry_run: Modo simulación
+            save_snapshot: Si guardar snapshot (default: True)
 
         Returns:
             Tupla de (cuentas_actualizadas, snapshot_id)
@@ -275,12 +281,15 @@ class ClientAccountsSimulationService:
         cuentas_actualizadas = update_result.cuentas_actualizadas
 
         snapshot_id = None
-        if not dry_run:
+        if not dry_run and save_snapshot:
             snapshot_result = await self.save_daily_snapshot(
                 target_date,
                 simulation_id
             )
             snapshot_id = snapshot_result.snapshot_id
+            self.logger.info(f"Snapshot guardado para {target_date}: {snapshot_id}")
+        elif not save_snapshot:
+            self.logger.debug(f"Snapshot omitido para {target_date} (optimización de performance)")
 
         return cuentas_actualizadas, snapshot_id
 
@@ -362,8 +371,16 @@ class ClientAccountsSimulationService:
         rotaciones_procesadas = rotaciones_first + rotaciones_procesadas_rot
 
         # 4. Actualizar ROI de todas las cuentas y guardar snapshot
+        # OPTIMIZACIÓN: Guardar snapshot solo cada 3 días para mejorar performance
+        # Siempre guardar en día 1 y último día
+        should_save_snapshot = (
+            target_date.day % 3 == 0  # Cada 3 días
+            or target_date.day == 1   # Primer día del mes
+            or dry_run                # Siempre en dry_run
+        )
+
         cuentas_actualizadas, snapshot_id = await self._update_roi_and_save_snapshot(
-            target_date, simulation_id, window_days, dry_run
+            target_date, simulation_id, window_days, dry_run, save_snapshot=should_save_snapshot
         )
 
         # 5. Obtener estadísticas POST-sincronización
@@ -542,16 +559,46 @@ class ClientAccountsSimulationService:
                 continue
 
             roi_agente_al_asignar = cuenta["roi_agente_al_asignar"]
-            roi_acumulado_con_agente = roi_agente_actual - roi_agente_al_asignar
 
-            # CORREGIDO: Calcular balance_actual desde balance_inicial
-            # roi_acumulado_con_agente ya es un valor ACUMULADO, no incremental
-            # Por lo tanto, debe aplicarse sobre balance_inicial, no sobre balance_anterior
+            # CORREGIDO: Calcular el factor de cambio RELATIVO del agente
+            # En lugar de restar ROIs (diferencia absoluta), calcular el ratio de multiplicadores
+            # Esto refleja correctamente el rendimiento que experimentó la cuenta
+
+            # PROTECCIÓN: Limitar el ROI del agente a rangos razonables para proteger cuentas
+            # Los agentes en futures pueden tener ROI extremos (-200%, +500%, etc.)
+            # pero las cuentas de clientes deben tener protección de capital
+            MAX_AGENT_ROI = 200.0  # Limitar ganancia máxima aplicable a +200%
+            MIN_AGENT_ROI = -90.0  # Limitar pérdida máxima aplicable a -90%
+
+            roi_agente_al_asignar_safe = max(MIN_AGENT_ROI, min(MAX_AGENT_ROI, roi_agente_al_asignar))
+            roi_agente_actual_safe = max(MIN_AGENT_ROI, min(MAX_AGENT_ROI, roi_agente_actual))
+
+            # Convertir ROI a multiplicadores (ej: +568% limitado a +200% = 3.0x)
+            multiplicador_inicio = 1 + (roi_agente_al_asignar_safe / 100)
+            multiplicador_actual = 1 + (roi_agente_actual_safe / 100)
+
+            # Factor de cambio relativo (ej: 2.1 / 3.0 = 0.7 = -30%)
+            if multiplicador_inicio > 0:
+                factor_cambio = multiplicador_actual / multiplicador_inicio
+            else:
+                # Si el agente tenía ROI de -100% al asignar (multiplicador = 0), usar cambio absoluto
+                factor_cambio = 1 + ((roi_agente_actual_safe - roi_agente_al_asignar_safe) / 100)
+
+            # PROTECCIÓN ADICIONAL: Limitar el factor de cambio para evitar pérdidas catastróficas
+            # Una cuenta no debería perder más del 95% ni ganar más de 300% en una asignación
+            MAX_FACTOR = 4.0   # Ganancia máxima: 300%
+            MIN_FACTOR = 0.05  # Pérdida máxima: 95%
+            factor_cambio = max(MIN_FACTOR, min(MAX_FACTOR, factor_cambio))
+
+            # Aplicar el factor de cambio al balance inicial de la cuenta
             balance_inicial = cuenta["balance_inicial"]
-            balance_actual = balance_inicial * (1 + roi_acumulado_con_agente / 100)
+            balance_actual = balance_inicial * factor_cambio
 
-            # Prevenir balance negativo (no se puede perder más del 100%)
-            balance_actual = max(0.0, balance_actual)
+            # Calcular ROI acumulado para tracking (basado en el factor de cambio)
+            roi_acumulado_con_agente = (factor_cambio - 1) * 100
+
+            # Prevenir balance negativo (protección final)
+            balance_actual = max(balance_inicial * 0.01, balance_actual)  # Mínimo 1% del capital inicial
 
             # Calcular ROI total respecto al balance inicial (para tracking)
             roi_total_nuevo = ((balance_actual / balance_inicial) - 1) * 100 if balance_inicial > 0 else 0.0

@@ -61,15 +61,17 @@ class SimulationResponseBuilder:
                 # Fallback adicional por si viene con nombre roi_7d_total en resultados bulk
                 roi_value = agent.get("roi_7d_total", 0.0)
 
-            top_16_with_data.append({
+            agent_data = {
                 "userId": agent["userId"],
-                # Por compatibilidad mantenemos el nombre "roi_7d" aunque la ventana pueda ser distinta
-                "roi_7d": roi_value,
+                # Campo dinámico según window_days (roi_3d, roi_7d, etc.)
+                roi_field: roi_value,
                 "total_pnl": agent.get("total_pnl", 0.0),
                 "balance": agent.get("balance_current", 0.0),
                 "total_trades_7d": agent.get("total_trades_7d", 0),
                 "rank": agent.get("rank", idx + 1)
-            })
+            }
+
+            top_16_with_data.append(agent_data)
 
         result = {
             "success": True,

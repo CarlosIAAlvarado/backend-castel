@@ -34,12 +34,11 @@ from app.application.services.replacement_service import ReplacementService
 from app.application.services.daily_orchestrator_service import DailyOrchestratorService
 from app.application.services.movement_query_service import MovementQueryService
 from app.application.services.balance_query_service import BalanceQueryService
-from app.application.services.data_aggregation_service import DataAggregationService
-from app.application.services.kpi_calculation_service import KPICalculationService
 from app.application.services.daily_roi_calculation_service import DailyROICalculationService
 from app.application.services.roi_7d_calculation_service import ROI7DCalculationService
 from app.application.services.client_accounts_service import ClientAccountsService
 from app.application.services.client_accounts_simulation_service import ClientAccountsSimulationService
+# RebalancingService ELIMINADO - FLUJO REAL: No hay rebalanceos programados
 
 
 def get_agent_state_repository() -> AgentStateRepository:
@@ -233,17 +232,20 @@ def get_selection_service(
     top16_repo: Top16RepositoryDep,
     balance_repo: BalanceRepositoryDep,
     roi_7d_service: Annotated[ROI7DCalculationService, Depends(get_roi_7d_calculation_service)],
-    balance_query_service: Annotated[BalanceQueryService, Depends(get_balance_query_service)]
+    balance_query_service: Annotated[BalanceQueryService, Depends(get_balance_query_service)],
+    state_repo: AgentStateRepositoryDep
 ) -> SelectionService:
     """
     Provider for SelectionService.
+
+    VERSION 4.0 - FLUJO REAL: Agregado state_repo para verificar roi_since_entry
 
     VERSION 2.0: Ahora inyecta ROI7DCalculationService para nueva logica
 
     Returns:
         SelectionService with injected dependencies
     """
-    return SelectionService(top16_repo, balance_repo, roi_7d_service, balance_query_service)
+    return SelectionService(top16_repo, balance_repo, roi_7d_service, balance_query_service, state_repo=state_repo)
 
 
 def get_assignment_service(
@@ -331,12 +333,13 @@ def get_daily_orchestrator_service(
     state_repo: AgentStateRepositoryDep,
     daily_roi_repo: DailyROIRepositoryDep,
     roi_7d_repo: ROI7DRepositoryDep,
-    client_accounts_sync_service: Annotated[ClientAccountsSimulationService, Depends(get_client_accounts_simulation_service)]
+    client_accounts_sync_service: Annotated[ClientAccountsSimulationService, Depends(get_client_accounts_simulation_service)],
+    status_repo: SimulationStatusRepositoryDep
 ) -> DailyOrchestratorService:
     """
     Provider for DailyOrchestratorService.
 
-    VERSION 3.0: Agregado ClientAccountsSimulationService
+    VERSION 5.0 - FLUJO REAL: Eliminado RebalancingService
 
     Returns:
         DailyOrchestratorService with injected dependencies
@@ -350,7 +353,8 @@ def get_daily_orchestrator_service(
         state_repo,
         daily_roi_repo,
         roi_7d_repo,
-        client_accounts_sync_service
+        client_accounts_sync_service,
+        status_repo
     )
 
 
@@ -374,37 +378,8 @@ def get_movement_query_service(
     return MovementQueryService(movement_repo)
 
 
-def get_data_aggregation_service(
-    movement_query_service: Annotated[MovementQueryService, Depends(get_movement_query_service)],
-    balance_query_service: Annotated[BalanceQueryService, Depends(get_balance_query_service)]
-) -> DataAggregationService:
-    """
-    Provider for DataAggregationService.
-
-    Returns:
-        DataAggregationService with injected dependencies
-    """
-    return DataAggregationService(movement_query_service, balance_query_service)
-
-
 MovementQueryServiceDep = Annotated[MovementQueryService, Depends(get_movement_query_service)]
 BalanceQueryServiceDep = Annotated[BalanceQueryService, Depends(get_balance_query_service)]
-DataAggregationServiceDep = Annotated[DataAggregationService, Depends(get_data_aggregation_service)]
-
-
-def get_kpi_calculation_service(
-    data_aggregation_service: DataAggregationServiceDep
-) -> KPICalculationService:
-    """
-    Provider for KPICalculationService.
-
-    Returns:
-        KPICalculationService with injected dependencies
-    """
-    return KPICalculationService(data_aggregation_service)
-
-
-KPICalculationServiceDep = Annotated[KPICalculationService, Depends(get_kpi_calculation_service)]
 DailyROICalculationServiceDep = Annotated[DailyROICalculationService, Depends(get_daily_roi_calculation_service)]
 ROI7DCalculationServiceDep = Annotated[ROI7DCalculationService, Depends(get_roi_7d_calculation_service)]
 
@@ -425,3 +400,5 @@ def get_client_accounts_service(
 
 
 ClientAccountsServiceDep = Annotated[ClientAccountsService, Depends(get_client_accounts_service)]
+
+# REBALANCING PROVIDERS ELIMINADOS - FLUJO REAL: No hay rebalanceos programados

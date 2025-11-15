@@ -3,6 +3,10 @@ Punto de entrada principal para el servidor FastAPI
 Ejecutar con: python main.py
 """
 
+import sys
+# FORZAR A PYTHON A NO USAR ARCHIVOS .pyc
+sys.dont_write_bytecode = True
+
 if __name__ == "__main__":
     import uvicorn
     from app.config.settings import settings
@@ -21,5 +25,5 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.host,
         port=settings.port,
-        reload=settings.reload
+        reload=False  # DESACTIVADO TEMPORALMENTE PARA DEBUGGING
     )

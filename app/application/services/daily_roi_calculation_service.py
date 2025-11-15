@@ -103,7 +103,7 @@ class DailyROICalculationService:
             )
             return cached
 
-        logger.info(f"[DEBUG_ROI] CACHE MISS - Calculando nuevo ROI para userId={userId}, fecha={target_date_str}")
+        logger.debug(f"[DEBUG_ROI] CACHE MISS - Calculando nuevo ROI para userId={userId}, fecha={target_date_str}")
 
         # Ejecutar query de agregación
         result = await self._execute_aggregation_query(userId, target_date)
@@ -139,7 +139,7 @@ class DailyROICalculationService:
         # Guardar en repositorio (caché)
         await self.daily_roi_repo.save(daily_roi)
 
-        logger.info(
+        logger.debug(
             f"ROI diario calculado y guardado: userId={userId}, "
             f"fecha={target_date_str}, roi={daily_roi.roi_day:.4f}, "
             f"pnl={daily_roi.total_pnl_day:.2f}, n_trades={daily_roi.n_trades}"
@@ -304,13 +304,13 @@ class DailyROICalculationService:
                 return None
 
             result = results[0]
-            logger.info(
+            logger.debug(
                 f"[DEBUG_ROI] Query exitosa para userId={userId}, fecha={target_date.isoformat()}\n"
                 f"  - balance_base: {result.get('balance_base', 'N/A')}\n"
                 f"  - n_trades: {result.get('n_trades', 0)}\n"
                 f"  - total_pnl_day: {result.get('total_pnl_day', 0)}\n"
-                f"  - roi_day: {result.get('roi_day', 0)}\n"
-                f"  - trades preview: {result.get('trades', [])[:2] if result.get('trades') else []}"
+                f"  - roi_day: {result.get('roi_day', 0)}"
+                # trades preview removido para mejorar performance
             )
 
             return result

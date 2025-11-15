@@ -28,6 +28,7 @@ class Top16Day(BaseModel):
     n_accounts: int
     total_aum: float
     is_in_casterly: bool = False
+    window_days: Optional[int] = Field(default=None, description="Ventana de días usada para calcular ROI")
     created_at: Optional[datetime] = Field(default=None, alias="createdAt")
 
     def to_dict(self) -> dict:

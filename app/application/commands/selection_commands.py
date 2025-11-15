@@ -20,10 +20,10 @@ class SelectionCommandService:
     Command Service para selección de agentes (CQRS Pattern).
 
     RESPONSABILIDAD ÚNICA: Solo operaciones de ESCRITURA.
-    - ✅ Guardar Top 16 en base de datos
-    - ✅ Actualizar rankings
-    - ✅ Persistir selecciones
-    - ❌ NO consulta datos (eso es responsabilidad de SelectionQueryService)
+    -  Guardar Top 16 en base de datos
+    -  Actualizar rankings
+    -  Persistir selecciones
+    -  NO consulta datos (eso es responsabilidad de SelectionQueryService)
 
     Beneficios CQRS:
     - Separación clara de responsabilidades (SRP)

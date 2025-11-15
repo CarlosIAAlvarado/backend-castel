@@ -341,55 +341,71 @@ class KPIAggregationService:
 
         logger.info(f"Calculando daily_metrics desde: {roi_collection_name}")
 
-        # Obtener documentos ROI
+        # Obtener documentos ROI de TODOS los días en el rango
+        # Necesitamos documentos de cada día para poder calcular métricas diarias
         roi_docs = list(agent_roi_collection.find({
             "userId": {"$in": top16_agent_ids},
-            "target_date": end_date.isoformat()
-        }))
+            "target_date": {
+                "$gte": start_date.isoformat(),
+                "$lte": end_date.isoformat()
+            }
+        }).sort("target_date", 1))
 
         if not roi_docs:
             logger.warning(f"No se encontraron datos para calcular daily_metrics")
             return []
 
-        # Filtrar daily_rois
-        filtered_roi_docs = self._filter_roi_docs_by_date_range(
-            roi_docs, start_date, end_date, window_days
-        )
+        logger.info(f"Encontrados {len(roi_docs)} documentos ROI para calcular daily_metrics")
 
-        # Calcular metricas por dia
+        # Organizar documentos por fecha para fácil acceso
+        # Cada documento tiene target_date y puede tener daily_rois con datos de la ventana
+        docs_by_date = {}
+        for doc in roi_docs:
+            target = doc.get("target_date")
+            if target not in docs_by_date:
+                docs_by_date[target] = []
+            docs_by_date[target].append(doc)
+
+        # Calcular métricas para cada día del rango
         num_days = (end_date - start_date).days + 1
         daily_metrics = []
         cumulative_roi = 0.0
 
         for day_index in range(num_days):
             current_date = start_date + timedelta(days=day_index)
+            current_date_str = current_date.isoformat()
 
             daily_roi_sum = 0.0
-            active_agents = 0
-            total_pnl = 0.0
+            active_agents_count = 0
+            total_pnl_sum = 0.0
 
-            for doc in filtered_roi_docs:
-                daily_rois_list = doc.get("filtered_daily_rois", [])
+            # Buscar documentos de este día
+            docs_for_day = docs_by_date.get(current_date_str, [])
 
-                if day_index < len(daily_rois_list):
-                    day_data = daily_rois_list[day_index]
-                    roi = day_data.get("roi", 0.0)
-                    pnl = day_data.get("pnl", 0.0)
+            if docs_for_day:
+                # Usar el último día de daily_rois de cada documento (es el target_date)
+                for doc in docs_for_day:
+                    # El ROI del día es el del documento (roi_3d, roi_5d, etc.)
+                    roi_field = f"roi_{window_days}d"
+                    roi_value = doc.get(roi_field, 0.0)
 
-                    daily_roi_sum += roi
-                    total_pnl += pnl
+                    # El P&L del día es el total_pnl del documento
+                    pnl_value = doc.get("total_pnl", 0.0)
 
-                    if roi != 0.0:
-                        active_agents += 1
+                    daily_roi_sum += roi_value
+                    total_pnl_sum += pnl_value
+
+                    if roi_value != 0.0 or pnl_value != 0.0:
+                        active_agents_count += 1
 
             cumulative_roi += daily_roi_sum
 
             daily_metrics.append(DailyMetric(
                 date=current_date,
                 roi_cumulative=cumulative_roi,
-                active_agents=active_agents,
-                total_pnl=total_pnl
+                active_agents=active_agents_count,
+                total_pnl=total_pnl_sum
             ))
 
-        logger.info(f"daily_metrics generados: {len(daily_metrics)} dias")
+        logger.info(f"daily_metrics generados: {len(daily_metrics)} días")
         return daily_metrics

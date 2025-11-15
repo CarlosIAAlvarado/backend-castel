@@ -155,12 +155,15 @@ class SimulationStatusRepository:
             if message:
                 update_data["message"] = message
 
-            self.collection.update_one(
+            result = self.collection.update_one(
                 {"status_id": self.CURRENT_ID},
                 {"$set": update_data}
             )
 
-            logger.debug(f"Progreso actualizado: dia {current_day}")
+            logger.info(f"[PROGRESS_UPDATE] Dia {current_day} - Matched: {result.matched_count}, Modified: {result.modified_count}")
+
+            if result.matched_count == 0:
+                logger.warning(f"[PROGRESS_UPDATE] No se encontró documento con status_id='{self.CURRENT_ID}'")
 
         except PyMongoError as e:
             logger.error(f"Error al actualizar progreso: {e}")

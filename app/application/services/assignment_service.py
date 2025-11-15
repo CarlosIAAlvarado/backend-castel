@@ -45,6 +45,8 @@ class AssignmentService:
         """
         Obtiene todas las cuentas disponibles con sus balances en una fecha.
 
+        Si no hay balances reales, crea 1000 cuentas ficticias.
+
         Args:
             target_date: Fecha objetivo
 
@@ -59,6 +61,17 @@ class AssignmentService:
                 "account_id": balance.user_id,
                 "balance": balance.balance
             })
+
+        # Si no hay cuentas con balances reales, crear cuentas ficticias
+        if not accounts:
+            logger.warning(f"No hay balances reales en {target_date}. Creando 1000 cuentas ficticias")
+            accounts = [
+                {
+                    "account_id": f"CLIENT_ACCOUNT_{i+1:04d}",
+                    "balance": 1000.0
+                }
+                for i in range(1000)
+            ]
 
         return accounts
 

@@ -35,6 +35,7 @@ router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 class SimulationRequest(BaseModel):
     start_date: date = Field(..., description="Fecha inicial de la simulacion (YYYY-MM-DD)")
     end_date: date = Field(..., description="Fecha final de la simulacion (YYYY-MM-DD)")
+    window_days: int = Field(7, description="Hipótesis de frecuencia de rebalanceo (3, 5, 7, 10, 15, 30)")
     update_client_accounts: bool = Field(False, description="Si True, sincroniza cuentas de clientes durante la simulacion")
     simulation_id: Optional[str] = Field(None, description="ID de la simulacion (se genera automaticamente si no se proporciona)")
     simulation_name: Optional[str] = Field(None, description="Nombre descriptivo de la simulacion")
@@ -42,16 +43,16 @@ class SimulationRequest(BaseModel):
 
     @validator('end_date')
     def validate_date_range(cls, end_date, values):
-        """Valida que el rango sea de minimo 30 dias."""
+        """Valida que el rango sea de minimo 3 dias (cambiado temporalmente para testing)."""
         if 'start_date' not in values:
             raise ValueError("start_date es requerido")
 
         start = values['start_date']
         diff_days = (end_date - start).days + 1
 
-        if diff_days < 30:
+        if diff_days < 3:
             raise ValueError(
-                f"El rango debe ser de minimo 30 dias. "
+                f"El rango debe ser de minimo 3 dias. "
                 f"Rango actual: {diff_days} dias"
             )
 
@@ -468,7 +469,7 @@ async def _process_simulation_days(
     Procesa todos los días de la simulación y detecta rotaciones.
 
     Args:
-        window_days: Ventana de días usada para cálculo de ROI (igual al total de días del rango)
+        window_days: Ventana de días usada para cálculo de ROI (3, 5, 7, 10, 15, 30)
         status_repo: Repositorio para actualizar el estado de la simulación
 
     Returns:
@@ -674,6 +675,7 @@ async def _save_simulation_summary(
                 target_date=end_date,
                 start_date=start_date,
                 days_simulated=total_days,
+                window_days=request.window_days,
                 fall_threshold=3,
                 stop_loss_threshold=-0.10
             ),
@@ -813,24 +815,57 @@ async def run_simulation(
         status_repo.upsert(initial_status)
         logger.info("Estado inicial de simulación guardado")
 
-        # 5. Procesar todos los días de la simulación
-        # Usar total_days como window_days para capturar todos los datos
-        all_results, total_rotations_detected = await _process_simulation_days(
-            orchestrator_service,
-            selection_service,
-            rotation_log_repo,
-            status_repo,
-            db,
-            request,
-            date_range,
-            total_days
-        )
+        # 5. Procesar todos los días de la simulación usando run_simulation (con rebalanceo)
+        logger.info(f"Ejecutando simulación con rebalanceo (window_days={request.window_days})")
+        logger.info(f"DEBUG: orchestrator_service = {orchestrator_service}")
+        logger.info(f"DEBUG: tipo de orchestrator_service = {type(orchestrator_service)}")
+        logger.info(f"DEBUG: Llamando a orchestrator_service.run_simulation()")
+
+        try:
+            orchestrator_result = await orchestrator_service.run_simulation(
+                start_date=start_date,
+                end_date=end_date,
+                update_client_accounts=request.update_client_accounts,
+                simulation_id=request.simulation_id,
+                window_days=request.window_days,
+                dry_run=request.dry_run
+            )
+            logger.info(f"DEBUG: orchestrator_result recibido, tipo: {type(orchestrator_result)}, keys: {orchestrator_result.keys() if isinstance(orchestrator_result, dict) else 'N/A'}")
+        except Exception as e:
+            logger.error(f"ERROR LLAMANDO A orchestrator_service.run_simulation(): {str(e)}", exc_info=True)
+            raise
+
+        # Extraer resultados del orchestrator
+        daily_results_raw = orchestrator_result.get("daily_results", [])
+        total_rotations_detected = orchestrator_result.get("summary", {}).get("total_rotations", 0)
+
+        # Adaptar formato para compatibilidad con código existente
+        all_results = []
+        for day_result in daily_results_raw:
+            # Detectar rotaciones del día (contar si hay campo rebalancing o rotations_executed)
+            rotations_count = 0
+            if "rebalancing" in day_result and day_result["rebalancing"].get("is_rebalancing_day"):
+                rotations_count += day_result["rebalancing"].get("total_rotations", 0)
+            if "rotations_executed" in day_result:
+                rotations_exec = day_result.get("rotations_executed", [])
+                # Manejar tanto int como list
+                if isinstance(rotations_exec, int):
+                    rotations_count += rotations_exec
+                else:
+                    rotations_count += len(rotations_exec)
+
+            all_results.append({
+                "date": day_result.get("date"),
+                "rotations_detected": rotations_count,
+                "rank_changes_detected": 0,  # No calculamos cambios de ranking aquí
+                "result": day_result
+            })
 
         # 6. Obtener resultado del último día
         result = all_results[-1]["result"] if all_results else {}
 
         # 7. Guardar resumen de simulación
-        top16_agent_ids = [agent.agent_id for agent in _get_top16_final(db, end_date, total_days)]
+        top16_agent_ids = [agent.agent_id for agent in _get_top16_final(db, end_date, request.window_days)]
         simulation_id = await _save_simulation_summary(
             simulation_repo,
             db,
@@ -838,11 +873,11 @@ async def run_simulation(
             start_date,
             end_date,
             top16_agent_ids,
-            total_days
+            request.window_days
         )
 
         # 8. Guardar configuración del sistema
-        _save_system_config(db, request, start_date, end_date, total_days)
+        _save_system_config(db, request, start_date, end_date, request.window_days)
 
         # 9. Guardar snapshot de client accounts
         redistribution_result = None
@@ -853,7 +888,7 @@ async def run_simulation(
             start_date,
             end_date,
             all_results,
-            total_days,
+            request.window_days,
             redistribution_result,
             roi_update_result
         )
@@ -977,7 +1012,8 @@ async def _get_summary_kpis(db, end_date: date, top16_agent_ids: List[str], wind
 
     # Calcular KPIs basicos
     total_agents = len(roi_docs)
-    total_roi = sum(doc.get("roi_7d_total", 0.0) for doc in roi_docs)
+    roi_field = f"roi_{window_days}d"
+    total_roi = sum(doc.get(roi_field, 0.0) for doc in roi_docs)
     avg_roi = total_roi / total_agents if total_agents > 0 else 0.0
 
     # Volatilidad
@@ -1015,7 +1051,7 @@ async def _get_summary_kpis(db, end_date: date, top16_agent_ids: List[str], wind
                     max_drawdown = drawdown
 
     # Win Rate
-    positive_agents = sum(1 for doc in roi_docs if doc.get("roi_7d_total", 0.0) > 0)
+    positive_agents = sum(1 for doc in roi_docs if doc.get(roi_field, 0.0) > 0)
     win_rate = positive_agents / total_agents if total_agents > 0 else 0.0
 
     # Sharpe Ratio
@@ -1042,6 +1078,7 @@ async def _get_summary_kpis(db, end_date: date, top16_agent_ids: List[str], wind
 def _get_top16_final(db, end_date: date, window_days: int = 7) -> List[TopAgentSummary]:
     """
     Obtiene el Top 16 final desde top16_XD (coleccion dinamica).
+    Intenta primero con la coleccion especifica, luego con top16_7d como fallback.
     """
     from app.utils.collection_names import get_top16_collection_name
     top16_collection_name = get_top16_collection_name(window_days)
@@ -1053,12 +1090,20 @@ def _get_top16_final(db, end_date: date, window_days: int = 7) -> List[TopAgentS
         "date": end_date.isoformat()
     }).sort("rank", 1))
 
+    # Fallback: Si no hay datos en la coleccion especifica, intentar con top16_7d
+    if not top16_docs and window_days != 7:
+        logger.warning(f"No se encontraron datos en {top16_collection_name}, intentando con top16_7d")
+        top16_collection = db["top16_7d"]
+        top16_docs = list(top16_collection.find({
+            "date": end_date.isoformat()
+        }).sort("rank", 1))
+
     roi_field = f"roi_{window_days}d"
     return [
         TopAgentSummary(
             rank=doc.get("rank"),
             agent_id=doc.get("agent_id"),
-            roi_7d=doc.get(roi_field, 0.0),
+            roi_7d=doc.get(roi_field, doc.get("roi_7d", 0.0)),  # Fallback a roi_7d si no existe el campo especifico
             total_aum=doc.get("total_aum", 0.0),
             n_accounts=doc.get("n_accounts", 0),
             is_in_casterly=doc.get("is_in_casterly", False)
@@ -1073,10 +1118,11 @@ def _get_rotations_summary(db, start_date: date, end_date: date) -> RotationsSum
     """
     rotation_collection = db.rotation_log
 
+    # Query que funciona tanto con "YYYY-MM-DD" como con "YYYY-MM-DDT00:00:00"
     rotation_docs = list(rotation_collection.find({
         "date": {
             "$gte": start_date.isoformat(),
-            "$lte": end_date.isoformat()
+            "$lte": (end_date.isoformat() + "T23:59:59")  # Captura todo el día
         }
     }))
 
@@ -1109,69 +1155,78 @@ def _get_rotations_summary(db, start_date: date, end_date: date) -> RotationsSum
 def _calculate_daily_metrics(db, start_date: date, end_date: date, top16_agent_ids: List[str], window_days: int = 7) -> List[DailyMetric]:
     """
     Calcula metricas diarias para graficos de evolucion.
-    Agrega los daily_rois de los Top 16 agentes desde la coleccion ROI correspondiente.
+    Usa daily_roi_calculation para obtener ROI diario (no acumulado) de cada día.
     """
-    from app.utils.collection_names import get_roi_collection_name
-    roi_collection_name = get_roi_collection_name(window_days)
-    agent_roi_collection = db[roi_collection_name]
+    # Usar daily_roi_calculation que contiene ROI diario real
+    daily_roi_collection = db["daily_roi_calculation"]
 
     logger.info("[DEBUG] _calculate_daily_metrics llamado con:")
     logger.info(f"[DEBUG]   start_date: {start_date}")
     logger.info(f"[DEBUG]   end_date: {end_date}")
     logger.info(f"[DEBUG]   window_days: {window_days}")
-    logger.info(f"[DEBUG]   Usando coleccion: {roi_collection_name}")
+    logger.info(f"[DEBUG]   Usando coleccion: daily_roi_calculation")
     logger.info(f"[DEBUG]   top16_agent_ids (total {len(top16_agent_ids)}): {top16_agent_ids[:3]}...")
 
-    # Obtener documentos de la coleccion ROI dinamica para los Top 16 agentes
+    # Obtener ROIs diarios (no acumulados) de TODOS los días en el rango
     # IMPORTANTE: El campo se llama 'userId', no 'agent_id'
-    roi_docs = list(agent_roi_collection.find({
+    roi_docs = list(daily_roi_collection.find({
         "userId": {"$in": top16_agent_ids},
-        "target_date": end_date.isoformat()
-    }))
+        "date": {
+            "$gte": start_date.isoformat(),
+            "$lte": end_date.isoformat()
+        }
+    }).sort("date", 1))
 
-    logger.info(f"[DEBUG] Documentos encontrados en {roi_collection_name}: {len(roi_docs)}")
+    logger.info(f"[DEBUG] Documentos encontrados en daily_roi_calculation: {len(roi_docs)}")
 
     if not roi_docs:
-        logger.warning(f"No se encontraron datos en {roi_collection_name} para los Top 16 agentes en target_date={end_date}")
+        logger.warning(f"No se encontraron datos en daily_roi_calculation para los Top 16 agentes en rango {start_date} - {end_date}")
         return []
 
-    # Calcular el numero de dias
-    num_days = (end_date - start_date).days + 1
+    # Organizar documentos por fecha para fácil acceso
+    docs_by_date = {}
+    for doc in roi_docs:
+        doc_date = doc.get("date")
+        if doc_date not in docs_by_date:
+            docs_by_date[doc_date] = []
+        docs_by_date[doc_date].append(doc)
 
+    # Calcular métricas para cada día del rango
+    num_days = (end_date - start_date).days + 1
     daily_metrics = []
     cumulative_roi = 0.0
 
     for day_index in range(num_days):
         current_date = start_date + timedelta(days=day_index)
+        current_date_str = current_date.isoformat()
 
-        # Sumar el ROI del dia para todos los Top 16 agentes
         daily_roi_sum = 0.0
-        active_agents = 0
-        total_pnl = 0.0
+        active_agents_count = 0
+        total_pnl_sum = 0.0
 
-        for doc in roi_docs:
-            daily_rois_list = doc.get("daily_rois", [])
+        # Buscar documentos de este día
+        docs_for_day = docs_by_date.get(current_date_str, [])
 
-            # Verificar que el indice este dentro del rango
-            if day_index < len(daily_rois_list):
-                day_data = daily_rois_list[day_index]
-                roi = day_data.get("roi", 0.0)
-                pnl = day_data.get("pnl", 0.0)
+        if docs_for_day:
+            for doc in docs_for_day:
+                # El ROI diario real está en roi_day
+                roi_value = doc.get("roi_day", 0.0)
+                # El P&L del día es el total_pnl_day
+                pnl_value = doc.get("total_pnl_day", 0.0)
 
-                daily_roi_sum += roi
-                total_pnl += pnl
+                daily_roi_sum += roi_value
+                total_pnl_sum += pnl_value
 
-                # Contar agentes activos (con ROI != 0)
-                if roi != 0.0:
-                    active_agents += 1
+                if roi_value != 0.0 or pnl_value != 0.0:
+                    active_agents_count += 1
 
         cumulative_roi += daily_roi_sum
 
         daily_metrics.append(DailyMetric(
             date=current_date,
             roi_cumulative=cumulative_roi,
-            active_agents=active_agents,
-            total_pnl=total_pnl
+            active_agents=active_agents_count,
+            total_pnl=total_pnl_sum
         ))
 
     logger.info(f"[DEBUG] daily_metrics generados: {len(daily_metrics)} dias")
