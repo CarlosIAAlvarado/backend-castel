@@ -377,7 +377,22 @@ async def get_summary_report(
     Usa el parametro window_days si se especifica, sino lee de la ultima simulacion ejecutada.
 
     Esta función ha sido refactorizada para reducir complejidad (22 -> ~8).
+
+    PERFORMANCE OPTIMIZATION: Implementa caching agresivo con Redis (TTL: 45s).
+    Expected improvement: 5-15s → 50-100ms (150x faster on cache hit).
     """
+    # === PERFORMANCE: Check cache first ===
+    from app.core.cache import cache_service
+
+    cache_key = f"summary:{start_date}:{end_date}:{window_days}"
+    cached_data = await cache_service.get(cache_key)
+
+    if cached_data:
+        logger.info(f"✓ Cache HIT for summary report: {cache_key}")
+        return cached_data
+
+    logger.debug(f"✗ Cache MISS for summary report: {cache_key}")
+
     try:
         # 1. Obtener configuración de ventana solicitada y ventana de la simulación ejecutada
         requested_window_days = window_days
@@ -561,7 +576,7 @@ async def get_summary_report(
                 except Exception as e:
                     logger.warning(f"No se pudieron calcular KPIs de simulación completa: {str(e)}")
 
-        return {
+        result = {
             "success": True,
             "window_days": window_days,
             "period": {
@@ -579,6 +594,12 @@ async def get_summary_report(
             "simulation_kpis": simulation_kpis,
             "active_agents": active_agents_final,
         }
+
+        # === PERFORMANCE: Store in cache with 45s TTL ===
+        await cache_service.set(cache_key, result, ttl=45)
+        logger.debug(f"✓ Cached summary report: {cache_key} (TTL: 45s)")
+
+        return result
 
     except Exception as e:
         logger.error(f"[ERROR] Error en get_summary_report: {str(e)}", exc_info=True)

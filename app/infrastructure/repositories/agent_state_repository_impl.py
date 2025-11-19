@@ -1,5 +1,6 @@
 from typing import List, Optional
 from datetime import date, datetime
+from pymongo.client_session import ClientSession
 from app.domain.repositories.agent_state_repository import AgentStateRepository
 from app.domain.repositories.agent_state_queries import AgentStateFallQueries
 from app.domain.entities.agent_state import AgentState
@@ -13,10 +14,15 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
     Implementa multiples interfaces especializadas segun ISP:
     - AgentStateRepository: Operaciones CRUD basicas y de historial
     - AgentStateFallQueries: Operaciones especializadas de analisis de caidas
+
+    Soporte para transacciones:
+    - Acepta session opcional en constructor para Unit of Work
+    - Todas las operaciones respetan la session si existe
     """
 
-    def __init__(self):
+    def __init__(self, session: Optional[ClientSession] = None):
         self.collection_name = "agent_states"
+        self.session = session
 
     def create(self, agent_state: AgentState) -> AgentState:
         """Crea un nuevo registro de estado de agente."""
@@ -38,7 +44,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
         doc["createdAt"] = datetime.now()
         doc["updatedAt"] = datetime.now()
 
-        result = collection.insert_one(doc)
+        result = collection.insert_one(doc, session=self.session)
         agent_state.id = str(result.inserted_id)
 
         return agent_state
@@ -67,7 +73,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
             docs.append(doc)
 
         if docs:
-            result = collection.insert_many(docs)
+            result = collection.insert_many(docs, session=self.session)
             for i, inserted_id in enumerate(result.inserted_ids):
                 agent_states[i].id = str(inserted_id)
 
@@ -80,7 +86,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
         doc = collection.find_one({
             "agent_id": agent_id,
             "date": target_date.isoformat()
-        })
+        }, session=self.session)
 
         if doc:
             return self._doc_to_entity(doc)
@@ -91,7 +97,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
         """Obtiene todos los estados de una fecha especifica."""
         collection = database_manager.get_collection(self.collection_name)
 
-        docs = collection.find({"date": target_date.isoformat()})
+        docs = collection.find({"date": target_date.isoformat()}, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -101,7 +107,8 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
 
         doc = collection.find_one(
             {"agent_id": agent_id},
-            sort=[("date", -1)]
+            sort=[("date", -1)],
+            session=self.session
         )
 
         if doc:
@@ -125,7 +132,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
             }}
         ]
 
-        results = collection.aggregate(pipeline)
+        results = collection.aggregate(pipeline, session=self.session)
 
         states_map = {}
         for result in results:
@@ -140,7 +147,8 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
         collection = database_manager.get_collection(self.collection_name)
 
         docs = collection.find(
-            {"agent_id": agent_id}
+            {"agent_id": agent_id},
+            session=self.session
         ).sort("date", -1).limit(days)
 
         return [self._doc_to_entity(doc) for doc in docs]
@@ -156,13 +164,14 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
                 "agent_id": agent_id,
                 "date": target_date.isoformat()
             },
-            {"$set": updates}
+            {"$set": updates},
+            session=self.session
         )
 
         doc = collection.find_one({
             "agent_id": agent_id,
             "date": target_date.isoformat()
-        })
+        }, session=self.session)
 
         return self._doc_to_entity(doc)
 
@@ -174,7 +183,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
             "date": target_date.isoformat(),
             "fall_days": {"$gte": min_fall_days},
             "is_in_casterly": True
-        })
+        }, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -201,7 +210,7 @@ class AgentStateRepositoryImpl(AgentStateRepository, AgentStateFallQueries):
             }
         ]
 
-        result = list(collection.aggregate(pipeline))
+        result = list(collection.aggregate(pipeline, session=self.session))
 
         if not result:
             return {

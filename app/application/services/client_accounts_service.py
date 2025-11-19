@@ -15,6 +15,7 @@ from pymongo.database import Database
 from pymongo import UpdateOne, InsertOne
 from app.utils.collection_names import get_top16_collection_name
 from app.application.services.client_accounts_window_service import ClientAccountsWindowService
+from app.infrastructure.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -88,50 +89,44 @@ class ClientAccountsService:
         logger.info(f"Distribucion completada: {len(distribution)} asignaciones")
 
         # 4. Crear/actualizar registros en cuentas_clientes_trading (bulk upsert)
+        # OPTIMIZACION: Usar UpdateOne con upsert=True elimina N+1 queries
         fecha_asignacion = datetime.utcnow()
         bulk_operations = []
 
         for account_data in distribution:
-            cuenta_existente = self.cuentas_trading_col.find_one({"cuenta_id": account_data["cuenta_id"]})
-
-            if cuenta_existente:
-                bulk_operations.append(
-                    UpdateOne(
-                        {"cuenta_id": account_data["cuenta_id"]},
-                        {
-                            "$set": {
-                                "agente_actual": account_data["agente_id"],
-                                "fecha_asignacion_agente": fecha_asignacion,
-                                "roi_agente_al_asignar": account_data["roi_agente"] * 100,  # Convertir a porcentaje
-                                "updated_at": fecha_asignacion,
-                            }
+            # Usar upsert para crear o actualizar en una sola operacion
+            bulk_operations.append(
+                UpdateOne(
+                    {"cuenta_id": account_data["cuenta_id"]},
+                    {
+                        "$set": {
+                            "agente_actual": account_data["agente_id"],
+                            "fecha_asignacion_agente": fecha_asignacion,
+                            "roi_agente_al_asignar": account_data["roi_agente"] * 100,
+                            "updated_at": fecha_asignacion,
                         },
-                    )
+                        "$setOnInsert": {
+                            "cuenta_id": account_data["cuenta_id"],
+                            "nombre_cliente": account_data["nombre_cliente"],
+                            "balance_inicial": 1000.0,
+                            "balance_actual": 1000.0,
+                            "roi_total": 0.0,
+                            "win_rate": 0.0,
+                            "roi_acumulado_con_agente": 0.0,
+                            "numero_cambios_agente": 0,
+                            "estado": "activo",
+                            "created_at": fecha_asignacion,
+                        }
+                    },
+                    upsert=True
                 )
-            else:
-                trading_account = {
-                    "cuenta_id": account_data["cuenta_id"],
-                    "nombre_cliente": account_data["nombre_cliente"],
-                    "balance_inicial": 1000.0,
-                    "balance_actual": 1000.0,
-                    "roi_total": 0.0,
-                    "win_rate": 0.0,
-                    "agente_actual": account_data["agente_id"],
-                    "fecha_asignacion_agente": fecha_asignacion,
-                    "roi_agente_al_asignar": account_data["roi_agente"] * 100,  # Convertir a porcentaje
-                    "roi_acumulado_con_agente": 0.0,
-                    "numero_cambios_agente": 0,
-                    "estado": "activo",
-                    "created_at": fecha_asignacion,
-                    "updated_at": fecha_asignacion,
-                }
-                bulk_operations.append(InsertOne(trading_account))
+            )
 
         if bulk_operations:
-            result = self.cuentas_trading_col.bulk_write(bulk_operations)
+            result = self.cuentas_trading_col.bulk_write(bulk_operations, ordered=False)
             logger.info(
-                f"Procesadas {len(bulk_operations)} cuentas "
-                f"(insertadas: {result.inserted_count}, actualizadas: {result.modified_count})"
+                f"Procesadas {len(bulk_operations)} cuentas via upsert "
+                f"(insertadas: {result.upserted_count}, actualizadas: {result.modified_count})"
             )
 
         # 5. Crear registros en historial_asignaciones (bulk insert)
@@ -333,7 +328,17 @@ class ClientAccountsService:
         Raises:
             ValueError: Si no hay cuentas activas
         """
-        cuentas = list(self.cuentas_trading_col.find({"estado": "activo"}))
+        # OPTIMIZACION: Proyectar solo campos necesarios
+        cuentas = list(self.cuentas_trading_col.find(
+            {"estado": "activo"},
+            {
+                "cuenta_id": 1,
+                "nombre_cliente": 1,
+                "balance_actual": 1,
+                "agente_actual": 1,
+                "roi_total": 1
+            }
+        ))
 
         if not cuentas:
             raise ValueError("No hay cuentas activas para redistribuir")
@@ -777,8 +782,16 @@ class ClientAccountsService:
 
             win_rate_map[user_id] = win_rate
 
-        # Obtener todas las cuentas activas
-        cuentas = list(self.cuentas_trading_col.find({"estado": "activo"}))
+        # OPTIMIZACION: Proyectar solo campos necesarios
+        cuentas = list(self.cuentas_trading_col.find(
+            {"estado": "activo"},
+            {
+                "_id": 1,
+                "cuenta_id": 1,
+                "agente_actual": 1,
+                "roi_agente_al_asignar": 1
+            }
+        ))
 
         # Preparar operaciones de actualizacion en bulk
         from pymongo import UpdateOne
@@ -1412,8 +1425,11 @@ class ClientAccountsService:
 
         self.rebalanceo_log_col.insert_one(rebalanceo_log)
 
-        # Crear snapshot
-        cuentas_actualizadas = list(self.cuentas_trading_col.find({"estado": "activo"}))
+        # Crear snapshot - OPTIMIZACION: Proyectar solo campos necesarios
+        cuentas_actualizadas = list(self.cuentas_trading_col.find(
+            {"estado": "activo"},
+            {"agente_actual": 1}
+        ))
         distribution = self._get_accounts_per_agent_summary(
             [{"agente_id": c["agente_actual"]} for c in cuentas_actualizadas]
         )

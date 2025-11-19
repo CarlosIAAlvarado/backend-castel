@@ -82,9 +82,6 @@ class DailyOrchestratorService:
         self.client_accounts_sync = client_accounts_sync_service
         self.status_repo = status_repo
 
-        # Cache para optimización de performance
-        self._top16_cache = {}  # {(date, window_days): top16_data}
-
     async def process_day_one(
         self,
         target_date: date,

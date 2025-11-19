@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import date, datetime
 from bson import ObjectId
+from pymongo.client_session import ClientSession
 from app.domain.repositories.assignment_repository import AssignmentRepository
 from app.domain.repositories.assignment_read_ops import AssignmentReadOps
 from app.domain.repositories.assignment_write_ops import AssignmentWriteOps
@@ -17,11 +18,14 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
     - AssignmentReadOps: Solo operaciones de lectura
     - AssignmentWriteOps: Solo operaciones de escritura
 
-    Los servicios pueden depender de la interfaz especifica que necesiten.
+    Soporte para transacciones:
+    - Acepta session opcional en constructor para Unit of Work
+    - Todas las operaciones respetan la session si existe
     """
 
-    def __init__(self):
+    def __init__(self, session: Optional[ClientSession] = None):
         self.collection_name = "assignments"
+        self.session = session
 
     def create(self, assignment: Assignment) -> Assignment:
         """Crea una nueva asignacion de cuenta a agente."""
@@ -43,7 +47,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
         doc["createdAt"] = datetime.now()
         doc["updatedAt"] = datetime.now()
 
-        result = collection.insert_one(doc)
+        result = collection.insert_one(doc, session=self.session)
         assignment.id = str(result.inserted_id)
 
         return assignment
@@ -72,7 +76,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
             docs.append(doc)
 
         if docs:
-            result = collection.insert_many(docs)
+            result = collection.insert_many(docs, session=self.session)
             for i, inserted_id in enumerate(result.inserted_ids):
                 assignments[i].id = str(inserted_id)
 
@@ -82,7 +86,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
         """Obtiene todas las asignaciones activas del sistema."""
         collection = database_manager.get_collection(self.collection_name)
 
-        docs = collection.find({"is_active": True})
+        docs = collection.find({"is_active": True}, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -93,7 +97,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
         docs = collection.find({
             "agent_id": agent_id,
             "is_active": True
-        })
+        }, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -104,7 +108,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
         doc = collection.find_one({
             "account_id": account_id,
             "is_active": True
-        })
+        }, session=self.session)
 
         if doc:
             return self._doc_to_entity(doc)
@@ -115,7 +119,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
         """Obtiene todas las asignaciones de una fecha especifica."""
         collection = database_manager.get_collection(self.collection_name)
 
-        docs = collection.find({"date": target_date.isoformat()})
+        docs = collection.find({"date": target_date.isoformat()}, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -126,7 +130,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
         docs = collection.find({
             "agent_id": agent_id,
             "date": target_date.isoformat()
-        })
+        }, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -142,10 +146,11 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
                     "unassigned_at": datetime.now(),
                     "updatedAt": datetime.now()
                 }
-            }
+            },
+            session=self.session
         )
 
-        doc = collection.find_one({"_id": ObjectId(assignment_id)})
+        doc = collection.find_one({"_id": ObjectId(assignment_id)}, session=self.session)
         return self._doc_to_entity(doc)
 
     def transfer_accounts(self, from_agent: str, to_agent: str) -> int:
@@ -168,7 +173,8 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
                     "unassigned_at": now,
                     "updatedAt": now
                 }
-            }
+            },
+            session=self.session
         )
 
         new_docs = []
@@ -186,7 +192,7 @@ class AssignmentRepositoryImpl(AssignmentRepository, AssignmentReadOps, Assignme
             new_docs.append(doc)
 
         if new_docs:
-            collection.insert_many(new_docs)
+            collection.insert_many(new_docs, session=self.session)
 
         return len(active_assignments)
 

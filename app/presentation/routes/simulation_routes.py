@@ -4,6 +4,8 @@ from datetime import date, timedelta, datetime
 from typing import Dict, Any, List, Optional
 import uuid
 import logging
+import asyncio
+import threading
 from app.infrastructure.di.providers import (
     DailyOrchestratorServiceDep,
     SimulationRepositoryDep,
@@ -760,32 +762,69 @@ def _save_client_accounts_snapshot(
         return None
 
 
-@router.post("/run")
-async def run_simulation(
+def _run_simulation_background(
     request: SimulationRequest,
-    orchestrator_service: DailyOrchestratorServiceDep,
-    simulation_repo: SimulationRepositoryDep,
-    client_accounts_service: ClientAccountsServiceDep,
-    selection_service: SelectionServiceDep,
-    rotation_log_repo: RotationLogRepositoryDep,
-    status_repo: SimulationStatusRepositoryDep
-) -> Dict[str, Any]:
+    orchestrator_service,
+    simulation_repo,
+    client_accounts_service,
+    selection_service,
+    rotation_log_repo,
+    status_repo
+) -> None:
     """
-    Ejecuta una simulación de trading para un rango de fechas (mínimo 30 días).
-
-    El sistema procesa todos los días del rango y guarda los datos completos.
-    Los KPIs se pueden calcular posteriormente para diferentes ventanas mediante filtros.
+    Ejecuta la simulación en segundo plano en un thread separado.
+    Esta función NO retorna nada, solo ejecuta y actualiza el estado.
+    IMPORTANTE: Esta función es SÍNCRONA y se ejecuta en un thread separado.
     """
-    log.separator("=", 80)
-    log.success(f"Simulación iniciada - start_date={request.start_date}, end_date={request.end_date}", context="[SIMULATION]")
-    log.separator("=", 80)
-    logger.info(f"Recibida solicitud de simulación: start_date={request.start_date}, end_date={request.end_date}")
+    try:
+        # Crear un nuevo event loop para este thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
+        # Ejecutar la simulación asíncrona en el nuevo loop
+        loop.run_until_complete(_run_simulation_async(
+            request,
+            orchestrator_service,
+            simulation_repo,
+            client_accounts_service,
+            selection_service,
+            rotation_log_repo,
+            status_repo
+        ))
+        loop.close()
+
+    except Exception as e:
+        logger.error(f"Error en thread de simulación: {str(e)}", exc_info=True)
+        try:
+            status_repo.mark_completed()
+        except:
+            pass
+
+
+async def _run_simulation_async(
+    request: SimulationRequest,
+    orchestrator_service,
+    simulation_repo,
+    client_accounts_service,
+    selection_service,
+    rotation_log_repo,
+    status_repo
+) -> None:
+    """
+    Lógica asíncrona de la simulación.
+    """
     try:
         db = database_manager.get_database()
 
-        # 1. Validar rangos de fechas
-        start_date, end_date, max_date, total_days = _validate_date_ranges(request, db)
+        # Recuperar las fechas validadas desde el estado
+        current_status = status_repo.get_current()
+        if not current_status:
+            logger.error("No se encontró estado de simulación para ejecutar background task")
+            return
+
+        start_date = date.fromisoformat(current_status.start_date)
+        end_date = date.fromisoformat(current_status.end_date)
+        total_days = current_status.total_days
 
         # 2. Limpiar colecciones temporales
         cleaned_collections = _clean_collections(db, request)
@@ -800,40 +839,17 @@ async def run_simulation(
             date_range.append(current)
             current += timedelta(days=1)
 
-        # 4.5. Crear estado inicial de simulación
-        initial_status = SimulationStatus(
-            is_running=True,
-            current_day=0,
-            total_days=total_days,
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            started_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-            estimated_seconds_per_day=22,
-            message="Iniciando simulación..."
-        )
-        status_repo.upsert(initial_status)
-        logger.info("Estado inicial de simulación guardado")
-
         # 5. Procesar todos los días de la simulación usando run_simulation (con rebalanceo)
         logger.info(f"Ejecutando simulación con rebalanceo (window_days={request.window_days})")
-        logger.info(f"DEBUG: orchestrator_service = {orchestrator_service}")
-        logger.info(f"DEBUG: tipo de orchestrator_service = {type(orchestrator_service)}")
-        logger.info(f"DEBUG: Llamando a orchestrator_service.run_simulation()")
 
-        try:
-            orchestrator_result = await orchestrator_service.run_simulation(
-                start_date=start_date,
-                end_date=end_date,
-                update_client_accounts=request.update_client_accounts,
-                simulation_id=request.simulation_id,
-                window_days=request.window_days,
-                dry_run=request.dry_run
-            )
-            logger.info(f"DEBUG: orchestrator_result recibido, tipo: {type(orchestrator_result)}, keys: {orchestrator_result.keys() if isinstance(orchestrator_result, dict) else 'N/A'}")
-        except Exception as e:
-            logger.error(f"ERROR LLAMANDO A orchestrator_service.run_simulation(): {str(e)}", exc_info=True)
-            raise
+        orchestrator_result = await orchestrator_service.run_simulation(
+            start_date=start_date,
+            end_date=end_date,
+            update_client_accounts=request.update_client_accounts,
+            simulation_id=request.simulation_id,
+            window_days=request.window_days,
+            dry_run=request.dry_run
+        )
 
         # Extraer resultados del orchestrator
         daily_results_raw = orchestrator_result.get("daily_results", [])
@@ -842,13 +858,11 @@ async def run_simulation(
         # Adaptar formato para compatibilidad con código existente
         all_results = []
         for day_result in daily_results_raw:
-            # Detectar rotaciones del día (contar si hay campo rebalancing o rotations_executed)
             rotations_count = 0
             if "rebalancing" in day_result and day_result["rebalancing"].get("is_rebalancing_day"):
                 rotations_count += day_result["rebalancing"].get("total_rotations", 0)
             if "rotations_executed" in day_result:
                 rotations_exec = day_result.get("rotations_executed", [])
-                # Manejar tanto int como list
                 if isinstance(rotations_exec, int):
                     rotations_count += rotations_exec
                 else:
@@ -857,7 +871,7 @@ async def run_simulation(
             all_results.append({
                 "date": day_result.get("date"),
                 "rotations_detected": rotations_count,
-                "rank_changes_detected": 0,  # No calculamos cambios de ranking aquí
+                "rank_changes_detected": 0,
                 "result": day_result
             })
 
@@ -895,38 +909,88 @@ async def run_simulation(
 
         # 9.5. Marcar simulación como completada
         status_repo.mark_completed()
-        logger.info("Simulación marcada como completada")
+        logger.info("Simulación completada exitosamente en background")
 
-        # 10. Retornar respuesta exitosa
+        # Invalidate cache
+        from app.core.cache import cache_service
+        invalidated_count = await cache_service.delete_pattern("summary:*")
+        if invalidated_count > 0:
+            logger.info(f"✓ Invalidated {invalidated_count} summary cache entries after simulation")
+
+    except Exception as e:
+        logger.error(f"Error en simulación background: {str(e)}", exc_info=True)
+        status_repo.mark_completed()
+
+
+@router.post("/run")
+async def run_simulation(
+    request: SimulationRequest,
+    orchestrator_service: DailyOrchestratorServiceDep,
+    simulation_repo: SimulationRepositoryDep,
+    client_accounts_service: ClientAccountsServiceDep,
+    selection_service: SelectionServiceDep,
+    rotation_log_repo: RotationLogRepositoryDep,
+    status_repo: SimulationStatusRepositoryDep
+) -> Dict[str, Any]:
+    """
+    Ejecuta una simulación de trading para un rango de fechas (mínimo 30 días).
+
+    El sistema procesa todos los días del rango y guarda los datos completos.
+    Los KPIs se pueden calcular posteriormente para diferentes ventanas mediante filtros.
+    """
+    log.separator("=", 80)
+    log.success(f"Simulación iniciada - start_date={request.start_date}, end_date={request.end_date}", context="[SIMULATION]")
+    log.separator("=", 80)
+    logger.info(f"Recibida solicitud de simulación: start_date={request.start_date}, end_date={request.end_date}")
+
+    try:
+        db = database_manager.get_database()
+
+        # 1. Validar rangos de fechas
+        start_date, end_date, max_date, total_days = _validate_date_ranges(request, db)
+
+        # 2. IMPORTANTE: Crear estado inicial de simulación ANTES de iniciar background task
+        # Esto permite que el frontend detecte inmediatamente que la simulación está corriendo
+        initial_status = SimulationStatus(
+            is_running=True,
+            current_day=0,
+            total_days=total_days,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            started_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            estimated_seconds_per_day=22,
+            message="Iniciando simulación..."
+        )
+        status_repo.upsert(initial_status)
+        logger.info("Estado inicial de simulación guardado (is_running=True)")
+
+        # 3. Lanzar simulación en segundo plano usando un thread separado
+        simulation_thread = threading.Thread(
+            target=_run_simulation_background,
+            args=(
+                request,
+                orchestrator_service,
+                simulation_repo,
+                client_accounts_service,
+                selection_service,
+                rotation_log_repo,
+                status_repo
+            ),
+            daemon=True  # El thread se detendrá cuando el proceso principal termine
+        )
+        simulation_thread.start()
+        logger.info("Simulación lanzada en thread separado")
+
+        # 4. Retornar inmediatamente
         return {
             "success": True,
-            "message": "Simulación histórica día por día completada exitosamente",
-            "simulation_id": simulation_id,
-            "cleaned_collections": cleaned_collections,
-            "historical_processing": {
-                "days_processed": len(all_results),
-                "total_rotations_detected": total_rotations_detected,
-                "daily_results": all_results
-            },
-            "redistribution": {
-                "cuentas_reasignadas": redistribution_result.get("cuentas_reasignadas", 0) if redistribution_result else 0,
-                "num_agentes_top16": redistribution_result.get("num_agentes_top16", 0) if redistribution_result else 0,
-                "cuentas_por_agente": redistribution_result.get("cuentas_por_agente", 0) if redistribution_result else 0,
-                "error": redistribution_result.get("error") if redistribution_result and "error" in redistribution_result else None
-            },
-            "roi_update": {
-                "cuentas_actualizadas": roi_update_result.get("cuentas_actualizadas", 0) if roi_update_result else 0,
-                "error": roi_update_result.get("error") if roi_update_result and "error" in roi_update_result else None
-            },
-            "client_accounts_snapshot": client_accounts_snapshot_info,
-            "simulation_info": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "total_days": total_days,
-                "days_processed": len(date_range),
-                "description": f"Simulación de {total_days} días desde {start_date.isoformat()} hasta {end_date.isoformat()}"
-            },
-            "data": result
+            "message": "Simulación iniciada en segundo plano",
+            "simulation_started": True,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "total_days": total_days,
+            "estimated_duration_seconds": total_days * 22
         }
 
     except ValueError as e:
@@ -978,6 +1042,46 @@ async def get_simulation_status(
         raise HTTPException(
             status_code=500,
             detail=f"Error al obtener estado de simulacion: {str(e)}"
+        )
+
+
+@router.post("/cancel")
+async def cancel_simulation(
+    status_repo: SimulationStatusRepositoryDep
+) -> Dict[str, Any]:
+    """
+    Cancela la simulacion en curso.
+
+    Marca la simulacion como cancelada (is_running=False) para que el proceso
+    actual se detenga de forma segura.
+
+    Returns:
+        Confirmacion de cancelacion
+    """
+    try:
+        current_status = status_repo.get_current()
+
+        if not current_status or not current_status.is_running:
+            return {
+                "success": False,
+                "message": "No hay simulacion en curso para cancelar"
+            }
+
+        # Marcar como cancelada
+        status_repo.mark_cancelled()
+
+        logger.info("Simulacion cancelada exitosamente por peticion del usuario")
+
+        return {
+            "success": True,
+            "message": "Simulacion cancelada exitosamente"
+        }
+
+    except Exception as e:
+        logger.error(f"Error al cancelar simulacion: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al cancelar simulacion: {str(e)}"
         )
 
 

@@ -25,5 +25,5 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.host,
         port=settings.port,
-        reload=False  # DESACTIVADO TEMPORALMENTE PARA DEBUGGING
+        reload=settings.reload  # Usar configuracion desde settings.py/.env
     )

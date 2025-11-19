@@ -115,6 +115,31 @@ class SimulationStatusRepository:
             logger.error(f"Error al marcar simulacion como completada: {e}")
             raise
 
+    def mark_cancelled(self) -> None:
+        """
+        Marca la simulacion como cancelada por el usuario.
+
+        Actualiza is_running=False y agrega mensaje de cancelacion.
+        """
+        try:
+            current = self.get_current()
+
+            if not current:
+                logger.warning("No hay simulacion activa para cancelar")
+                return
+
+            current.is_running = False
+            current.message = "Simulacion cancelada por el usuario"
+            current.updated_at = datetime.utcnow()
+
+            self.upsert(current)
+
+            logger.info("Simulacion cancelada por el usuario")
+
+        except PyMongoError as e:
+            logger.error(f"Error al cancelar simulacion: {e}")
+            raise
+
     def delete_current(self) -> bool:
         """
         Elimina el estado actual de simulacion.

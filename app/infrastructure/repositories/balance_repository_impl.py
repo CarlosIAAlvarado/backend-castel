@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict
 from datetime import date, datetime
+from pymongo.client_session import ClientSession
 from app.domain.repositories.balance_repository import BalanceRepository
 from app.domain.repositories.balance_queries import BalanceAggregationQueries
 from app.domain.entities.balance import Balance
@@ -15,10 +16,15 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
     Implementa multiples interfaces especializadas segun ISP:
     - BalanceRepository: Operaciones basicas de consulta de balances
     - BalanceAggregationQueries: Operaciones especializadas de agregacion de AUM
+
+    Soporte para transacciones:
+    - Acepta session opcional en constructor para Unit of Work
+    - Todas las operaciones respetan la session si existe
     """
 
-    def __init__(self):
+    def __init__(self, session: Optional[ClientSession] = None):
         self.collection_name = "balances"
+        self.session = session
 
     def get_by_account_and_date(self, account_id: str, target_date: date) -> Optional[Balance]:
         """Obtiene el balance de una cuenta en una fecha especifica."""
@@ -34,10 +40,10 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
                 "$gte": start_dt,
                 "$lte": end_dt
             }
-        })
+        }, session=self.session)
 
         if not doc:
-            docs = list(collection.find({"userId": account_id}).sort("createdAt", -1).limit(1))
+            docs = list(collection.find({"userId": account_id}, session=self.session).sort("createdAt", -1).limit(1))
             if docs:
                 doc = docs[0]
 
@@ -60,7 +66,7 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
                 "$gte": start_dt,
                 "$lte": end_dt
             }
-        })
+        }, session=self.session)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -78,7 +84,7 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
                 "$gte": start_dt,
                 "$lte": end_dt
             }
-        }).sort("createdAt", 1)
+        }, session=self.session).sort("createdAt", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -95,7 +101,7 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
                 "$gte": start_dt.isoformat(),
                 "$lte": end_dt.isoformat()
             }
-        }).sort("createdAt", 1)
+        }, session=self.session).sort("createdAt", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -125,7 +131,7 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
             }
         ]
 
-        result = list(collection.aggregate(pipeline))
+        result = list(collection.aggregate(pipeline, session=self.session))
 
         if not result:
             return 0.0
@@ -174,7 +180,7 @@ class BalanceRepositoryImpl(BalanceRepository, BalanceAggregationQueries):
             }
         ]
 
-        results = list(collection.aggregate(pipeline))
+        results = list(collection.aggregate(pipeline, session=self.session))
 
         evolution = []
         for result in results:

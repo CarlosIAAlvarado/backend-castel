@@ -97,17 +97,16 @@ class MongoUnitOfWork(UnitOfWork):
                     "Continuando sin transacción explícita."
                 )
 
-            # Inicializar repositorios con session
-            self.rotations = RotationLogRepositoryImpl()
-            self.assignments = AssignmentRepositoryImpl()
-            self.balances = BalanceRepositoryImpl()
-            self.agent_states = AgentStateRepositoryImpl()
-            self.top16 = Top16RepositoryImpl()
+            # Inicializar repositorios con session para TRANSACCIONES
+            # UNIT OF WORK 100% OPERATIVO - Todos los repositorios soportan transacciones
+            self.rotations = RotationLogRepositoryImpl(session=self._session)
+            self.assignments = AssignmentRepositoryImpl(session=self._session)
+            self.balances = BalanceRepositoryImpl(session=self._session)
+            self.agent_states = AgentStateRepositoryImpl(session=self._session)
+            self.top16 = Top16RepositoryImpl(session=self._session)
 
-            # TODO: Pasar session a repositorios cuando implementen soporte
-            # Por ahora, los repositorios no reciben session en constructor
-            # En una implementación completa, deberían aceptar session para
-            # todas las operaciones dentro de la transacción
+            # TODOS LOS REPOSITORIOS COMPLETADOS (5/5)
+            # Soporte completo de transacciones ACID con rollback automatico
 
             self._is_committed = False
             self._is_rolled_back = False

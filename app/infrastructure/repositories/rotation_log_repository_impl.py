@@ -1,5 +1,6 @@
-from typing import List
+from typing import List, Optional
 from datetime import date, datetime, timedelta
+from pymongo.client_session import ClientSession
 from app.domain.repositories.rotation_log_repository import RotationLogRepository
 from app.domain.entities.rotation_log import RotationLog
 from app.config.database import database_manager
@@ -8,10 +9,15 @@ from app.config.database import database_manager
 class RotationLogRepositoryImpl(RotationLogRepository):
     """
     Implementacion concreta del repositorio de historial de rotaciones usando MongoDB.
+
+    Soporte para transacciones:
+    - Acepta session opcional en constructor para Unit of Work
+    - Todas las operaciones respetan la session si existe
     """
 
-    def __init__(self):
+    def __init__(self, session: Optional[ClientSession] = None):
         self.collection_name = "rotation_log"
+        self.session = session
 
     def create(self, rotation: RotationLog) -> RotationLog:
         """Registra una nueva rotacion de agente."""
@@ -28,7 +34,8 @@ class RotationLogRepositoryImpl(RotationLogRepository):
             doc["date"] = doc["date"].isoformat()
         doc["createdAt"] = datetime.now()
 
-        result = collection.insert_one(doc)
+        # TRANSACCION: Usar session si existe
+        result = collection.insert_one(doc, session=self.session)
         rotation.id = str(result.inserted_id)
 
         return rotation
@@ -37,7 +44,7 @@ class RotationLogRepositoryImpl(RotationLogRepository):
         """Obtiene todo el historial de rotaciones."""
         collection = database_manager.get_collection(self.collection_name)
 
-        docs = collection.find().sort("date", 1)
+        docs = collection.find(session=self.session).sort("date", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -52,7 +59,7 @@ class RotationLogRepositoryImpl(RotationLogRepository):
                 "$gte": start_date.isoformat(),
                 "$lt": (end_date + timedelta(days=1)).isoformat()  # Incluir todo el día final
             }
-        }).sort("date", 1)
+        }, session=self.session).sort("date", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -65,7 +72,7 @@ class RotationLogRepositoryImpl(RotationLogRepository):
                 {"agent_out": agent_id},
                 {"agent_in": agent_id}
             ]
-        }).sort("date", 1)
+        }, session=self.session).sort("date", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -78,7 +85,7 @@ class RotationLogRepositoryImpl(RotationLogRepository):
                 "$gte": start_date.isoformat(),
                 "$lte": end_date.isoformat()
             }
-        })
+        }, session=self.session)
 
         return count
 

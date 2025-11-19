@@ -43,6 +43,34 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def create_index_safe(collection, keys, name, **kwargs):
+    """
+    Crea un indice de forma segura, manejando conflictos con indices existentes.
+
+    Si existe un indice con el mismo nombre, lo omite.
+    Si existe un indice con las mismas claves pero diferente nombre, lo elimina y crea el nuevo.
+    """
+    try:
+        collection.create_index(keys, name=name, **kwargs)
+        return True
+    except Exception as e:
+        error_msg = str(e)
+        if "already exists" in error_msg.lower():
+            if "different name" in error_msg.lower():
+                existing_indexes = collection.list_indexes()
+                for idx in existing_indexes:
+                    if idx.get("key") == dict(keys):
+                        old_name = idx.get("name")
+                        logger.warning(f"  - Eliminando indice antiguo: {old_name}")
+                        collection.drop_index(old_name)
+                        collection.create_index(keys, name=name, **kwargs)
+                        return True
+            else:
+                logger.info(f"  - Indice '{name}' ya existe, omitiendo")
+                return False
+        raise
+
+
 def create_balances_indexes():
     """
     Crea indices para la coleccion balances.
@@ -340,6 +368,14 @@ def create_agent_states_indexes():
         )
         logger.info("  - Indice creado: date + is_in_casterly")
 
+        # NUEVO (Performance Optimization): Compound index para filtrado + sorting optimizado
+        collection.create_index(
+            [("date", ASCENDING), ("is_in_casterly", ASCENDING), ("roi_day", DESCENDING)],
+            name="idx_agent_states_date_active_roi",
+            background=True
+        )
+        logger.info("  - Indice creado: date + is_in_casterly + roi_day (desc)")
+
         logger.info("Indices para 'agent_states' creados exitosamente")
 
     except Exception as e:
@@ -381,6 +417,207 @@ def create_assignments_indexes():
 
     except Exception as e:
         logger.error(f"Error al crear indices para 'assignments': {e}")
+        raise
+
+
+def create_simulations_indexes():
+    """
+    Crea indices para la coleccion simulations.
+
+    Indices creados:
+    1. createdAt (desc): Para listar simulaciones mas recientes primero
+    2. config.target_date (desc): Para filtrar por fecha de simulacion
+    3. simulation_id: Para busquedas directas por ID
+    """
+    try:
+        db = database_manager.get_database()
+        collection = db["simulations"]
+
+        logger.info("Creando indices para coleccion 'simulations'...")
+
+        # Indice simple: createdAt descendente
+        collection.create_index(
+            [("createdAt", DESCENDING)],
+            name="idx_simulations_created",
+            background=True
+        )
+        logger.info("  - Indice creado: createdAt (desc)")
+
+        # Indice simple: config.target_date descendente
+        collection.create_index(
+            [("config.target_date", DESCENDING)],
+            name="idx_simulations_target_date",
+            background=True
+        )
+        logger.info("  - Indice creado: config.target_date (desc)")
+
+        # Indice simple: simulation_id
+        collection.create_index(
+            [("simulation_id", ASCENDING)],
+            name="idx_simulations_id",
+            background=True
+        )
+        logger.info("  - Indice creado: simulation_id")
+
+        logger.info("Indices para 'simulations' creados exitosamente")
+
+    except Exception as e:
+        logger.error(f"Error al crear indices para 'simulations': {e}")
+        raise
+
+
+def create_client_accounts_indexes():
+    """
+    Crea indices para las colecciones de client accounts.
+
+    Colecciones:
+    - cuentas_clientes_trading
+    - historial_asignaciones_clientes
+    - distribucion_cuentas_snapshot
+    - rebalanceo_log
+    """
+    try:
+        db = database_manager.get_database()
+
+        # Indices para cuentas_clientes_trading
+        logger.info("Creando indices para coleccion 'cuentas_clientes_trading'...")
+        cuentas_col = db["cuentas_clientes_trading"]
+
+        if create_index_safe(
+            cuentas_col,
+            [("simulation_id", ASCENDING)],
+            name="idx_cuentas_simulation",
+            background=True
+        ):
+            logger.info("  - Indice creado: simulation_id")
+
+        if create_index_safe(
+            cuentas_col,
+            [("agente_actual", ASCENDING), ("estado", ASCENDING)],
+            name="idx_cuentas_agent_status",
+            background=True
+        ):
+            logger.info("  - Indice creado: agente_actual + estado")
+
+        if create_index_safe(
+            cuentas_col,
+            [("estado", ASCENDING)],
+            name="idx_cuentas_status",
+            background=True
+        ):
+            logger.info("  - Indice creado: estado")
+
+        if create_index_safe(
+            cuentas_col,
+            [("simulation_id", ASCENDING), ("estado", ASCENDING)],
+            name="idx_cuentas_simulation_status",
+            background=True
+        ):
+            logger.info("  - Indice creado: simulation_id + estado")
+
+        if create_index_safe(
+            cuentas_col,
+            [("cuenta_id", ASCENDING)],
+            name="idx_cuentas_cuenta_id",
+            background=True
+        ):
+            logger.info("  - Indice creado: cuenta_id")
+
+        # NUEVO (Performance Optimization): Text search index para búsqueda de cuentas
+        if create_index_safe(
+            cuentas_col,
+            [("nombre_cliente", "text"), ("cuenta_id", "text"), ("agente_actual", "text")],
+            name="idx_cuentas_text_search",
+            background=True
+        ):
+            logger.info("  - Indice creado: nombre_cliente + cuenta_id + agente_actual (text search)")
+
+        # NUEVO (Performance Optimization): Estado + ROI compound index para rankings
+        if create_index_safe(
+            cuentas_col,
+            [("estado", ASCENDING), ("roi_total", DESCENDING)],
+            name="idx_cuentas_estado_roi",
+            background=True
+        ):
+            logger.info("  - Indice creado: estado + roi_total (desc)")
+
+        # Indices para historial_asignaciones_clientes
+        logger.info("Creando indices para coleccion 'historial_asignaciones_clientes'...")
+        historial_col = db["historial_asignaciones_clientes"]
+
+        if create_index_safe(
+            historial_col,
+            [("simulation_id", ASCENDING)],
+            name="idx_historial_simulation",
+            background=True
+        ):
+            logger.info("  - Indice creado: simulation_id")
+
+        if create_index_safe(
+            historial_col,
+            [("cuenta_id", ASCENDING), ("fecha_evento", DESCENDING)],
+            name="idx_historial_cuenta_fecha",
+            background=True
+        ):
+            logger.info("  - Indice creado: cuenta_id + fecha_evento (desc)")
+
+        # Indices para distribucion_cuentas_snapshot
+        logger.info("Creando indices para coleccion 'distribucion_cuentas_snapshot'...")
+        snapshot_col = db["distribucion_cuentas_snapshot"]
+
+        if create_index_safe(
+            snapshot_col,
+            [("simulation_id", ASCENDING), ("date", DESCENDING)],
+            name="idx_snapshot_simulation_date",
+            background=True
+        ):
+            logger.info("  - Indice creado: simulation_id + date (desc)")
+
+        # NUEVO (Performance Optimization): Indice adicional para snapshots por target_date
+        if create_index_safe(
+            snapshot_col,
+            [("target_date", DESCENDING), ("simulation_id", ASCENDING)],
+            name="idx_snapshot_target_date_sim",
+            background=True
+        ):
+            logger.info("  - Indice creado: target_date (desc) + simulation_id")
+
+        # Indices para rebalanceo_log
+        logger.info("Creando indices para coleccion 'rebalanceo_log'...")
+        rebalanceo_col = db["rebalanceo_log"]
+
+        if create_index_safe(
+            rebalanceo_col,
+            [("simulation_id", ASCENDING), ("date", DESCENDING)],
+            name="idx_rebalanceo_simulation_date",
+            background=True
+        ):
+            logger.info("  - Indice creado: simulation_id + date (desc)")
+
+        # NUEVO (Performance Optimization): Indices para rotation_log
+        logger.info("Creando indices para coleccion 'rotation_log'...")
+        rotation_col = db["rotation_log"]
+
+        if create_index_safe(
+            rotation_col,
+            [("date", ASCENDING)],
+            name="idx_rotation_date",
+            background=True
+        ):
+            logger.info("  - Indice creado: date")
+
+        if create_index_safe(
+            rotation_col,
+            [("simulation_id", ASCENDING), ("date", DESCENDING)],
+            name="idx_rotation_simulation_date",
+            background=True
+        ):
+            logger.info("  - Indice creado: simulation_id + date (desc)")
+
+        logger.info("Indices para client accounts creados exitosamente")
+
+    except Exception as e:
+        logger.error(f"Error al crear indices para client accounts: {e}")
         raise
 
 
@@ -474,6 +711,12 @@ def main():
         logger.info("\n" + "="*80)
         create_assignments_indexes()
 
+        logger.info("\n" + "="*80)
+        create_simulations_indexes()
+
+        logger.info("\n" + "="*80)
+        create_client_accounts_indexes()
+
         # Listar todos los indices creados
         logger.info("\n" + "="*80)
         list_existing_indexes()
@@ -491,10 +734,16 @@ def main():
         logger.info("  - agent_roi_7d: 2 indices (1 unique)")
         logger.info("  - agent_roi_3d, 5d, 10d, 15d, 30d: 10 indices (5 unique)")
         logger.info("  - top16_3d, 5d, 7d, 10d, 15d, 30d: 18 indices")
-        logger.info("  - agent_states: 2 indices")
+        logger.info("  - agent_states: 3 indices (1 compound con ROI)")
         logger.info("  - assignments: 2 indices")
+        logger.info("  - simulations: 3 indices")
+        logger.info("  - cuentas_clientes_trading: 7 indices (incluye text search + estado/roi)")
+        logger.info("  - historial_asignaciones_clientes: 2 indices")
+        logger.info("  - distribucion_cuentas_snapshot: 2 indices (simulation + target_date)")
+        logger.info("  - rebalanceo_log: 1 indice")
+        logger.info("  - rotation_log: 2 indices (date + simulation_id/date)")
         logger.info("")
-        logger.info("Total: 41 indices creados (VERSION 4.0)")
+        logger.info("Total: 59 indices creados (VERSION 4.3 - PERFORMANCE OPTIMIZADO)")
         logger.info("")
         logger.info("NOTA: Los indices se crean en modo 'background' para no bloquear")
         logger.info("      operaciones existentes. Puede tomar unos minutos completarse.")

@@ -1,5 +1,6 @@
-from typing import List
+from typing import List, Optional
 from datetime import date, datetime
+from pymongo.client_session import ClientSession
 from app.domain.repositories.top16_repository import Top16Repository
 from app.domain.entities.top16_day import Top16Day
 from app.config.database import database_manager
@@ -9,17 +10,23 @@ class Top16RepositoryImpl(Top16Repository):
     """
     Implementacion concreta del repositorio de Top16 usando MongoDB.
     Soporta colecciones dinámicas para diferentes ventanas de días.
+
+    Soporte para transacciones:
+    - Acepta session opcional en constructor para Unit of Work
+    - Todas las operaciones respetan la session si existe
     """
 
-    def __init__(self, collection_name: str = "top16_by_day"):
+    def __init__(self, collection_name: str = "top16_by_day", session: Optional[ClientSession] = None):
         """
         Inicializa el repositorio.
 
         Args:
             collection_name: Nombre de la colección (ej: "top16_7d", "top16_30d").
                             Default: "top16_by_day" (para retrocompatibilidad)
+            session: Session de MongoDB para transacciones (opcional)
         """
         self.collection_name = collection_name
+        self.session = session
 
     def delete_all(self) -> int:
         """
@@ -30,7 +37,7 @@ class Top16RepositoryImpl(Top16Repository):
             Numero de registros eliminados
         """
         collection = database_manager.get_collection(self.collection_name)
-        result = collection.delete_many({})
+        result = collection.delete_many({}, session=self.session)
         return result.deleted_count
 
     def create_batch(self, top16_list: List[Top16Day]) -> List[Top16Day]:
@@ -53,7 +60,7 @@ class Top16RepositoryImpl(Top16Repository):
             docs.append(doc)
 
         if docs:
-            result = collection.insert_many(docs)
+            result = collection.insert_many(docs, session=self.session)
             for i, inserted_id in enumerate(result.inserted_ids):
                 top16_list[i].id = str(inserted_id)
 
@@ -63,7 +70,7 @@ class Top16RepositoryImpl(Top16Repository):
         """Obtiene el ranking Top 16 de una fecha especifica."""
         collection = database_manager.get_collection(self.collection_name)
 
-        docs = collection.find({"date": target_date.isoformat()}).sort("rank", 1)
+        docs = collection.find({"date": target_date.isoformat()}, session=self.session).sort("rank", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -74,7 +81,7 @@ class Top16RepositoryImpl(Top16Repository):
         docs = collection.find({
             "date": target_date.isoformat(),
             "is_in_casterly": True
-        }).sort("rank", 1)
+        }, session=self.session).sort("rank", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
@@ -88,7 +95,7 @@ class Top16RepositoryImpl(Top16Repository):
                 "$gte": start_date.isoformat(),
                 "$lte": end_date.isoformat()
             }
-        }).sort("date", 1)
+        }, session=self.session).sort("date", 1)
 
         return [self._doc_to_entity(doc) for doc in docs]
 
